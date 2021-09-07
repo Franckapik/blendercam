@@ -27,7 +27,16 @@ from bpy.props import *
 import bl_operators
 from bpy.types import Menu, Operator, UIList, AddonPreferences
 
-from cam import ui, ops,curvecamtools,curvecamequation, utils, simple, polygon_utils_cam  # , post_processors
+import importlib
+camModules=["ui", "ops", "curvecamtools", "curvecamequation", "utils", "simple", "polygon_utils_cam"] # , post_processors
+for mod in camModules:
+    try:
+        modName=mod.split(".")[-1]
+        exec(modName + "=importlib.import_module('cam."+ mod+"')")
+        exec("importlib.reload("+modName+")")
+    except:
+        print("PROBLEM (RE)LOADING MODULE cam."+mod+" AT "+__name__)
+
 import numpy
 
 from shapely import geometry as sgeometry
@@ -40,12 +49,12 @@ import pickle
 bl_info = {
     "name": "CAM - gcode generation tools",
     "author": "Vilem Novak",
-    "version": (0, 9, 2),
+    "version": (0, 9, 1),
     "blender": (2, 80, 0),
     "location": "Properties > render",
     "description": "Generate machining paths for CNC",
     "warning": "there is no warranty for the produced gcode by now",
-    "wiki_url": "https://github.com/vilemduha/blendercam/wiki",
+    "wiki_url": "blendercam.blogspot.com",
     "tracker_url": "",
     "category": "Scene"}
 
@@ -551,9 +560,7 @@ class camOperation(bpy.types.PropertyGroup):
     pocket_option: EnumProperty(name='Start Position', items=(
         ('INSIDE', 'Inside', 'a'), ('OUTSIDE', 'Outside', 'a'), ('MIDDLE', 'Middle', 'a')),
                                 description='Pocket starting position', default='MIDDLE', update=updateRest)
-    pocketToCurve:bpy.props.BoolProperty(name="Pocket to curve",
-                                  description="generates a curve instead of a path",
-                                  default=False, update=updateRest)
+
     # Cutout
     cut_type: EnumProperty(name='Cut',
                            items=(('OUTSIDE', 'Outside', 'a'), ('INSIDE', 'Inside', 'a'), ('ONLINE', 'On line', 'a')),
@@ -576,12 +583,12 @@ class camOperation(bpy.types.PropertyGroup):
                                   default=25.0, precision=PRECISION, unit="LENGTH", update=updateOffsetImage)
     cutter_flutes: IntProperty(name="Cutter flutes", description="Cutter flutes", min=1, max=20, default=2,
                                 update=updateChipload)
-    cutter_tip_angle: FloatProperty(name="Cutter v-carve angle", description="Cutter v-carve angle", min=0.0,
+    cutter_tip_angle: FloatProperty(name="Cutter v-carve angle", description="Cutter v-carve angle", subtype="ANGLE",min=0.0,
                                      max=180.0, default=60.0, precision=PRECISION, update=updateOffsetImage)
     ball_radius: FloatProperty(name="Ball radius", description="Radius of", min=0.0,
                                      max=0.035, default=0.001, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
-    #ball_cone_flute: FloatProperty(name="BallCone Flute Length", description="length of flute", min=0.0,
-    #                                 max=0.1, default=0.017, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
+    ball_cone_flute: FloatProperty(name="BallCone Flute Length", description="length of flute", min=0.0,
+                                     max=0.1, default=0.017, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
     bull_corner_radius: FloatProperty(name="Bull Corner Radius", description="Radius tool bit corner", min=0.0,
                                      max=0.035, default=0.005, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
 
@@ -621,7 +628,6 @@ class camOperation(bpy.types.PropertyGroup):
     # carve only
     carve_depth: bpy.props.FloatProperty(name="Carve depth", default=0.001, min=-.100, max=32, precision=PRECISION,
                                           unit="LENGTH", update=updateRest)
-
     # drill only
     drill_type: EnumProperty(name='Holes on', items=(
         ('MIDDLE_SYMETRIC', 'Middle of symetric curves', 'a'), ('MIDDLE_ALL', 'Middle of all curve parts', 'a'),
@@ -833,9 +839,6 @@ class camOperation(bpy.types.PropertyGroup):
                                               precision=PRECISION, update=updateRest)
     # Add pocket operation to medial axis
     add_pocket_for_medial: bpy.props.BoolProperty(name="Add pocket operation", description="clean unremoved material after medial axis", default=True,
-                                        update=updateRest)
-
-    add_mesh_for_medial: bpy.props.BoolProperty(name="Add Medial mesh", description="Medial operation returns mesh for editing and further processing", default=False,
                                         update=updateRest)
     ####
     medial_axis_threshold: bpy.props.FloatProperty(name="Long vector threshold", default=0.001, min=0.00000001,
@@ -1143,7 +1146,7 @@ def get_panels():  # convenience function for bot register and unregister functi
         ui.CAM_PACK_Panel,
         ui.CAM_SLICE_Panel,
         ui.VIEW3D_PT_tools_curvetools,
-        ui.CustomPanel,
+        ui.OBJECT_PT_CustomPanel,
 
         ops.PathsBackground,
         ops.KillPathsBackground,
@@ -1175,7 +1178,6 @@ def get_panels():  # convenience function for bot register and unregister functi
         ops.CamSliceObjects,
         # other tools
         curvecamtools.CamCurveBoolean,
-        curvecamtools.CamCurveConvexHull,
         curvecamtools.CamOffsetSilhouete,
         curvecamtools.CamObjectSilhouete,
         curvecamtools.CamCurveIntarsion,
@@ -1341,7 +1343,7 @@ classes = [
     ui.CAM_PACK_Panel,
     ui.CAM_SLICE_Panel,
     ui.VIEW3D_PT_tools_curvetools,
-    ui.CustomPanel,
+    ui.OBJECT_PT_CustomPanel,
     ui.WM_OT_gcode_import,
 
     ops.PathsBackground,
@@ -1374,7 +1376,6 @@ classes = [
     ops.CamSliceObjects,
     # other tools
     curvecamtools.CamCurveBoolean,
-    curvecamtools.CamCurveConvexHull,
     curvecamtools.CamOffsetSilhouete,
     curvecamtools.CamObjectSilhouete,
     curvecamtools.CamCurveIntarsion,

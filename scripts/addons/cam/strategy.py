@@ -35,11 +35,13 @@ from cam import simple
 from cam.simple import *
 from cam import pattern
 from cam.pattern import *
-from cam import utils, bridges
+from cam import utils, bridges,ops
+from cam.utils import *
 from cam import polygon_utils_cam
 from cam.polygon_utils_cam import *
 from cam import image_utils
 from cam.image_utils import *
+
 
 from shapely.geometry import polygon as spolygon
 from shapely import geometry as sgeometry
@@ -50,7 +52,28 @@ SHAPELY = True
 
 ###########cutout strategy is completely here:
 def cutout(o):
-    # ob=bpy.context.active_object
+    max_depth = checkminz(o)
+    cutter_angle = math.radians(o.cutter_tip_angle/2)
+    c_offset = o.cutter_diameter / 2     #cutter ofset
+    print("cuttertype:",o.cutter_type,"max_depth:",max_depth)
+    if o.cutter_type == 'VCARVE':
+        c_offset = -max_depth * math.tan(cutter_angle)
+    elif o.cutter_type == 'CYLCONE':
+        c_offset = -max_depth * math.tan(cutter_angle) + o.cylcone_diameter/2
+    elif o.cutter_type == 'BALLCONE':
+        c_offset = -max_depth * math.tan(cutter_angle) + o.ball_radius
+    elif o.cutter_type == 'BALLNOSE':
+        r=o.cutter_diameter/2
+        print("cutter radius:",r)
+        if(-max_depth<r):
+            c_offset=math.sqrt((r)**2 - (r+max_depth)**2)
+            print("offset:",c_offset)
+    if c_offset > o.cutter_diameter / 2:
+       c_offset = o.cutter_diameter / 2
+    if o.straight:
+        join = 2
+    else:
+        join = 1
     print('operation: cutout')
     offset = True
     if o.cut_type == 'ONLINE' and o.onlycurves == True:  # is separate to allow open curves :)
@@ -75,11 +98,12 @@ def cutout(o):
             if o.cut_type == 'INSIDE':
                 offset = False
 
-            p = utils.getObjectOutline(o.cutter_diameter / 2, o, offset)
+            p = utils.getObjectOutline(c_offset, o, offset)
             if o.outlines_count > 1:
                 for i in range(1, o.outlines_count):
                     chunksFromCurve.extend(shapelyToChunks(p, -1))
-                    p = p.buffer(distance=o.dist_between_paths * offset, resolution=o.circle_detail)
+                    p = p.buffer(distance=o.dist_between_paths * offset, resolution=o.circle_detail, join_style=join,
+                                 mitre_limit=2)
 
         chunksFromCurve.extend(shapelyToChunks(p, -1))
         if o.outlines_count > 1 and o.movement_insideout == 'OUTSIDEIN':
@@ -142,6 +166,22 @@ def cutout(o):
             if layer[1] < bridgeheight:
                 bridges.useBridges(chunk, o)
 
+    if o.profile_start > 0:
+        print("cutout change profile start")
+        for chl in extendorder:
+            chunk = chl[0]
+            if chunk.closed:
+                chunk.changePathStart(o)
+
+    ## Lead in
+    if o.lead_in > 0.0 or o.lead_out > 0:
+        print("cutout leadin")
+        for chl in extendorder:
+            chunk = chl[0]
+            if chunk.closed:
+                chunk.breakPathForLeadinLeadout(o)
+                chunk.leadContour(o)
+
     if o.ramp:  # add ramps or simply add chunks
         for chl in extendorder:
             chunk = chl[0]
@@ -161,7 +201,6 @@ def cutout(o):
 
 def curve(o):
     print('operation: curve')
-
     pathSamples = []
     utils.getOperationSources(o)
     if not o.onlycurves:
@@ -182,7 +221,7 @@ def curve(o):
             for ch in pathSamples:
                 extendorder.append([ch.copy(), layer])  # include layer information to chunk list
 
-        for chl in extendorder:  # Set offset Z for all chunks according to the layer information, 
+        for chl in extendorder:  # Set offset Z for all chunks according to the layer information,
             chunk = chl[0]
             layer = chl[1]
             print('layer: ' + str(layer[1]))
@@ -255,43 +294,46 @@ def proj_curve(s, o):
 
 def pocket(o):
     print('operation: pocket')
-    p = utils.getObjectOutline(o.cutter_diameter / 2, o, False)
+    scene = bpy.context.scene
+
+    simple.removeMultiple("3D_poc")
+
+
+    max_depth = checkminz(o)
+    cutter_angle = math.radians(o.cutter_tip_angle/2)
+    c_offset = o.cutter_diameter / 2
+    if o.cutter_type == 'VCARVE':
+        c_offset = -max_depth * math.tan(cutter_angle)
+    elif o.cutter_type == 'CYLCONE':
+        c_offset = -max_depth * math.tan(cutter_angle) + o.cylcone_diameter/2
+    elif o.cutter_type == 'BALLCONE':
+        c_offset = -max_depth * math.tan(cutter_angle) + o.ball_radius
+    if c_offset > o.cutter_diameter / 2:
+       c_offset = o.cutter_diameter / 2
+
+    p = utils.getObjectOutline(c_offset, o, False)
     approxn = (min(o.max.x - o.min.x, o.max.y - o.min.y) / o.dist_between_paths) / 2
     print("approximative:" + str(approxn))
+    print(o)
+
     i = 0
     chunks = []
     chunksFromCurve = []
     lastchunks = []
     centers = None
     firstoutline = p  # for testing in the end.
-    prest = p.buffer(-o.cutter_diameter / 2, o.circle_detail)
+    prest = p.buffer(-c_offset, o.circle_detail)
     while not p.is_empty:
-        nchunks = shapelyToChunks(p, o.min.z)
-        print("nchunks")
-        pnew = p.buffer(-o.dist_between_paths, o.circle_detail)
-        print("pnew")
+        if o.pocketToCurve:
+            polygon_utils_cam.shapelyToCurve('3dpocket', p, 0.0)  # make a curve starting with _3dpocket
 
-        # caused a bad slow down
-        #        if o.dist_between_paths > o.cutter_diameter / 2.0:
-        #            prest = prest.difference(pnew.boundary.buffer(o.cutter_diameter / 2, o.circle_detail))
-        #            if not (pnew.contains(prest)):
-        #                prest = shapelyToMultipolygon(prest)
-        #                fine = []
-        #                go = []
-        #                for p1 in prest:
-        #                    if pnew.contains(p1):
-        #                        fine.append(p1)
-        #                    else:
-        #                        go.append(p1)
-        #                if len(go) > 0:
-        #                    for p1 in go:
-        #                        nchunks1 = shapelyToChunks(p1, o.min.z)
-        #                        nchunks.extend(nchunks1)
-        #                        prest = sgeometry.MultiPolygon(fine)
+        nchunks = shapelyToChunks(p, o.min.z)
+        # print("nchunks")
+        pnew = p.buffer(-o.dist_between_paths, o.circle_detail)
+        # print("pnew")
 
         nchunks = limitChunks(nchunks, o)
         chunksFromCurve.extend(nchunks)
-        print(i)
         parentChildDist(lastchunks, nchunks, o)
         lastchunks = nchunks
 
@@ -307,16 +349,12 @@ def pocket(o):
         for ch in chunksFromCurve:
             ch.points.reverse()
 
-    # if bpy.app.debug_value==1:
 
     chunksFromCurve = utils.sortChunks(chunksFromCurve, o)
 
     chunks = []
     layers = getLayers(o, o.maxz, checkminz(o))
 
-    # print(layers)
-    # print(chunksFromCurve)
-    # print(len(chunksFromCurve))
     for l in layers:
         lchunks = setChunksZ(chunksFromCurve, l[1])
         if o.ramp:
@@ -326,7 +364,7 @@ def pocket(o):
 
         ###########helix_enter first try here TODO: check if helix radius is not out of operation area.
         if o.helix_enter:
-            helix_radius = o.cutter_diameter * 0.5 * o.helix_diameter * 0.01  # 90 percent of cutter radius
+            helix_radius = c_offset * o.helix_diameter * 0.01  # 90 percent of cutter radius
             helix_circumference = helix_radius * pi * 2
 
             revheight = helix_circumference * tan(o.ramp_in_angle)
@@ -334,7 +372,7 @@ def pocket(o):
                 if chunksFromCurve[chi].children == []:
                     p = ch.points[0]  # TODO:intercept closest next point when it should stay low
                     # first thing to do is to check if helix enter can really enter.
-                    checkc = Circle(helix_radius + o.cutter_diameter / 2, o.circle_detail)
+                    checkc = Circle(helix_radius + c_offset, o.circle_detail)
                     checkc = affinity.translate(checkc, p[0], p[1])
                     covers = False
                     for poly in o.silhouete:
@@ -403,7 +441,7 @@ def pocket(o):
                     c = sgeometry.Polygon(c)
                     # print('çoutline')
                     # print(c)
-                    coutline = c.buffer(o.cutter_diameter / 2, o.circle_detail)
+                    coutline = c.buffer(c_offset, o.circle_detail)
                     # print(h)
                     # print('çoutline')
                     # print(coutline)
@@ -428,7 +466,11 @@ def pocket(o):
     if o.first_down:
         chunks = utils.sortChunks(chunks, o)
 
-    chunksToMesh(chunks, o)
+    if o.pocketToCurve: # make curve instead of a path
+        simple.joinMultiple("3dpocket")
+
+    else:
+        chunksToMesh(chunks, o)  #  make normal pocket path
 
 
 def drill(o):
@@ -527,7 +569,8 @@ def drill(o):
 
 def medial_axis(o):
     print('operation: Medial Axis')
-    print('doing highly experimental stuff')
+
+    simple.removeMultiple("medialMesh")
 
     from cam.voronoi import Site, computeVoronoiDiagram
 
@@ -535,37 +578,45 @@ def medial_axis(o):
 
     gpoly = spolygon.Polygon()
     angle = o.cutter_tip_angle
-    slope = math.tan(math.pi * (90 - angle / 2) / 180)
+    slope = math.tan(math.pi * (90 - angle / 2) / 180) #angle in degrees
+    #slope = math.tan((math.pi-angle)/2) #angle in radian
+    new_cutter_diameter = o.cutter_diameter
+    m_o_name = o.object_name
     if o.cutter_type == 'VCARVE':
         angle = o.cutter_tip_angle
         # start the max depth calc from the "start depth" of the operation.
-        maxdepth = o.maxz - math.tan(math.pi * (90 - angle / 2) / 180) * o.cutter_diameter / 2
+        maxdepth = o.maxz - slope * o.cutter_diameter / 2
         # don't cut any deeper than the "end depth" of the operation.
         if maxdepth < o.minz:
             maxdepth = o.minz
             # the effective cutter diameter can be reduced from it's max since we will be cutting shallower than the original maxdepth
             # without this, the curve is calculated as if the diameter was at the original maxdepth and we get the bit
             # pulling away from the desired cut surface
-            o.cutter_diameter = (maxdepth - o.maxz) / (- math.tan(math.pi * (90 - angle / 2) / 180)) * 2
-    elif o.cutter_type == 'BALLNOSE' or o.cutter_type == 'BALL':
+            new_cutter_diameter = (maxdepth - o.maxz) / (- slope) * 2
+    elif o.cutter_type == 'BALLNOSE':
         # angle = o.cutter_tip_angle
-        maxdepth = o.cutter_diameter / 2
+        maxdepth = new_cutter_diameter / 2
     else:
         o.warnings += 'Only Ballnose, Ball and V-carve cutters\n are supported'
         return
     # remember resolutions of curves, to refine them,
     # otherwise medial axis computation yields too many branches in curved parts
     resolutions_before = []
+
     for ob in o.objects:
         if ob.type == 'CURVE' or ob.type == 'FONT':
             resolutions_before.append(ob.data.resolution_u)
             if ob.data.resolution_u < 64:
                 ob.data.resolution_u = 64
+#            ob.data.resolution_u = 16
 
     polys = utils.getOperationSilhouete(o)
     mpoly = sgeometry.asMultiPolygon(polys)
     mpoly_boundary = mpoly.boundary
+    ipol = 0
     for poly in polys:
+        ipol = ipol + 1
+        print("polygon:", ipol)
         schunks = shapelyToChunks(poly, -1)
         schunks = chunksRefineThreshold(schunks, o.medial_axis_subdivision,
                                         o.medial_axis_threshold)  # chunksRefine(schunks,o)
@@ -598,13 +649,22 @@ def medial_axis(o):
 
         pts, edgesIdx = computeVoronoiDiagram(vertsPts, xbuff, ybuff, polygonsOutput=False, formatOutput=True)
 
-        #
         # pts=[[pt[0], pt[1], zPosition] for pt in pts]
         newIdx = 0
         vertr = []
         filteredPts = []
         print('filter points')
+        ipts = 0
         for p in pts:
+            ipts = ipts + 1
+            if ipts % 500 == 0:
+                sys.stdout.write('\r')
+                # the exact output you're looking for:
+                prog_message = "points: " + str(ipts) + " / " + str(len(pts)) + " " + str(
+                    round(100 * ipts / len(pts))) + "%"
+                sys.stdout.write(prog_message)
+                sys.stdout.flush()
+
             if not poly.contains(sgeometry.Point(p)):
                 vertr.append((True, -1))
             else:
@@ -616,7 +676,7 @@ def medial_axis(o):
                         z = maxdepth
                 elif o.cutter_type == 'BALL' or o.cutter_type == 'BALLNOSE':
                     d = mpoly_boundary.distance(sgeometry.Point(p))
-                    r = o.cutter_diameter / 2.0
+                    r = new_cutter_diameter / 2.0
                     if d >= r:
                         z = -r
                     else:
@@ -647,7 +707,7 @@ def medial_axis(o):
                 ledges.append(sgeometry.LineString((filteredPts[vertr[e[0]][1]], filteredPts[vertr[e[1]][1]])))
         # print(ledges[-1].has_z)
 
-        bufpoly = poly.buffer(-o.cutter_diameter / 2, resolution=64)
+        bufpoly = poly.buffer(-new_cutter_diameter / 2, resolution=64)
 
         lines = shapely.ops.linemerge(ledges)
         # print(lines.type)
@@ -657,33 +717,11 @@ def medial_axis(o):
             chunks.extend(shapelyToChunks(bufpoly, maxdepth))
         chunks.extend(shapelyToChunks(lines, 0))
 
-        # segments=[]
-        # processEdges=filteredEdgs.copy()
-        # chunk=camPathChunk([])
-        # chunk.points.append(filteredEdgs.pop())
-        # while len(filteredEdgs)>0:
+        # generate a mesh from the medial calculations
+        if o.add_mesh_for_medial:
+            polygon_utils_cam.shapelyToCurve('medialMesh', lines, 0.0)
+            bpy.ops.object.convert(target='MESH')
 
-        # Create new mesh structure
-
-        # print("Create mesh...")
-        # voronoiDiagram = bpy.data.meshes.new("VoronoiDiagram") #create a new mesh
-        #
-        #
-        #
-        # voronoiDiagram.from_pydata(filteredPts, filteredEdgs, []) #Fill the mesh with triangles
-        #
-        # voronoiDiagram.update(calc_edges=True) #Update mesh with new data
-        # #create an object with that mesh
-        # voronoiObj = bpy.data.objects.new("VoronoiDiagram", voronoiDiagram)
-        # #place object
-        # #bpy.ops.view3d.snap_cursor_to_selected()#move 3d-cursor
-        #
-        # #update scene
-        # bpy.context.scene.objects.link(voronoiObj) #Link object to scene
-        # bpy.context.scene.objects.active = voronoiObj
-        # voronoiObj.select = True
-
-    # bpy.ops.object.convert(target='CURVE')
     oi = 0
     for ob in o.objects:
         if ob.type == 'CURVE' or ob.type == 'FONT':
@@ -707,7 +745,15 @@ def medial_axis(o):
     if o.first_down:
         chunklayers = utils.sortChunks(chunklayers, o)
 
+    if o.add_mesh_for_medial: # make curve instead of a path
+        simple.joinMultiple("medialMesh")
+
     chunksToMesh(chunklayers, o)
+    # add pocket operation for medial if add pocket checked
+    if o.add_pocket_for_medial:
+#        o.add_pocket_for_medial = False
+        # export medial axis parameter to pocket op
+        ops.Add_Pocket(None, maxdepth, m_o_name, new_cutter_diameter)
 
 
 def getLayers(operation, startdepth, enddepth):
@@ -879,8 +925,10 @@ def chunksToMesh(chunks, o):
     else:
         ob.select_set(state=True, view_layer=None)
 
+
 def checkminz(o):
     if o.minz_from_material:
         return o.min.z
     else:
         return o.minz
+

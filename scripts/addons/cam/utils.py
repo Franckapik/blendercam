@@ -28,37 +28,23 @@ import math
 from math import *
 from mathutils import *
 from bpy.props import *
-import bl_operators
-from bpy.types import Menu, Operator
 from bpy_extras import object_utils
-import curve_simplify
-import bmesh
 
-import numpy
-import random, sys, os
-import pickle
-import string
-from cam import chunk
+import sys, numpy,pickle
+
+
 from cam.chunk import *
-from cam import collision
 from cam.collision import *
-# import multiprocessing
-from cam import simple
 from cam.simple import *
-from cam import pattern
 from cam.pattern import *
-from cam import polygon_utils_cam
 from cam.polygon_utils_cam import *
-from cam import image_utils
 from cam.image_utils import *
-from cam.nc import nc
-from cam.nc import iso
+
 from cam.opencamlib.opencamlib import oclSample, oclSamplePoints, oclResampleChunks, oclGetWaterline
 
 from shapely.geometry import polygon as spolygon
 from shapely import ops as sops
 from shapely import geometry as sgeometry
-from shapely import affinity, prepared
 
 # from shapely.geometry import * not possible until Polygon libs gets out finally..
 SHAPELY = True
@@ -129,17 +115,10 @@ def getBoundsWorldspace(obs, use_modifiers=False):
         elif ob.type == "FONT":
             activate(ob)
             bpy.ops.object.duplicate()
-
-            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
-
             co = bpy.context.active_object
+            bpy.ops.object.parent_clear(type='CLEAR_KEEP_TRANSFORM')
             bpy.ops.object.convert(target='MESH', keep_original=False)
-
-            if use_modifiers:
-                mesh = co.to_mesh(preserve_all_data_layers=True, depsgraph=bpy.context.evaluated_depsgraph_get())
-            else:
-                mesh = co.data
-
+            mesh = co.data
             for c in mesh.vertices:
                 coord = c.co
                 worldCoord = mw @ Vector((coord[0], coord[1], coord[2]))
@@ -149,10 +128,8 @@ def getBoundsWorldspace(obs, use_modifiers=False):
                 maxx = max(maxx, worldCoord.x)
                 maxy = max(maxy, worldCoord.y)
                 maxz = max(maxz, worldCoord.z)
-
-            if use_modifiers:
-                bpy.data.meshes.remove(mesh)
             bpy.ops.object.delete()
+            bpy.ops.outliner.orphans_purge()
         else:
 
             # for coord in bb:
@@ -904,7 +881,7 @@ def curveToShapely(cob, use_modifiers=False):
 # separate function in blender, so you can offset any curve.
 # FIXME: same algorithms as the cutout strategy, because that is hierarchy-respecting.
 
-def silhoueteOffset(context, offset):
+def silhoueteOffset(context, offset,style = 1,mitrelimit = 1.0):
     bpy.context.scene.cursor.location = (0, 0, 0)
     ob = bpy.context.active_object
     if ob.type == 'CURVE' or ob.type == 'FONT':
@@ -914,8 +891,10 @@ def silhoueteOffset(context, offset):
 
     polys = []
     mp = shapely.ops.unary_union(silhs)
-    mp = mp.buffer(offset, resolution=64)
-    shapelyToCurve('offset curve', mp, ob.location.z)
+    print("offset attributes:")
+    print(offset,style)
+    mp = mp.buffer(offset, cap_style = 1, join_style=style, resolution=16, mitre_limit=mitrelimit)
+    shapelyToCurve(ob.name +'_offset_'+str(round(offset,5)), mp, ob.location.z)
 
     return {'FINISHED'}
 
@@ -949,6 +928,31 @@ def polygonBoolean(context, boolean_type):
     # bpy.ops.object.convert(target='CURVE')
     # bpy.context.scene.cursor_location=ob.location
     # bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
+
+    return {'FINISHED'}
+
+def polygonConvexHull(context):
+    coords = []
+
+    bpy.ops.object.duplicate()
+    bpy.ops.object.join()
+    bpy.ops.object.transform_apply(location=True, rotation=False, scale=False)
+    bpy.context.active_object.name = "_tmp"
+
+    bpy.ops.object.convert(target='MESH')
+    obj = bpy.context.view_layer.objects.active
+
+    for v in obj.data.vertices:  # extract X,Y coordinates from the vertices data
+        c=(v.co.x, v.co.y)
+        coords.append(c)
+
+    simple.removeMultiple('_tmp')  # delete temporary mesh
+    simple.removeMultiple('ConvexHull')  # delete old hull
+
+    points = sgeometry.MultiPoint(coords)  # convert coordinates to shapely MultiPoint datastructure
+
+    hull = points.convex_hull
+    shapelyToCurve('ConvexHull', hull, 0.0)
 
     return {'FINISHED'}
 
@@ -1221,7 +1225,7 @@ def getOperationSilhouete(operation):
         # this conversion happens because we need the silh to be oriented, for milling directions.
         else:
             print('object method for retrieving silhouette')  #
-            operation.silhouete = getObjectSilhouete(stype, objects=operation.objects)
+            operation.silhouete = getObjectSilhouete(stype, objects=operation.objects, use_modifiers=operation.use_modifiers)
 
         operation.update_silhouete_tag = False
     return operation.silhouete
@@ -1246,9 +1250,9 @@ def getObjectSilhouete(stype, objects=None, use_modifiers=False):
             print('shapely getting silhouette')
             polys = []
             for ob in objects:
-
                 if use_modifiers:
-                    m = ob.to_mesh(preserve_all_data_layers=True, depsgraph=bpy.context.evaluated_depsgraph_get())
+                    ob = ob.evaluated_get(bpy.context.evaluated_depsgraph_get())
+                    m = ob.to_mesh()
                 else:
                     m = ob.data
                 mw = ob.matrix_world
@@ -1282,9 +1286,7 @@ def getObjectSilhouete(stype, objects=None, use_modifiers=False):
                         # if id==923:
                         #	m.polygons[923].select
                         id += 1
-                if use_modifiers:
-                    bpy.data.meshes.remove(m)
-            # print(polys
+   
             if totfaces < 20000:
                 p = sops.unary_union(polys)
             else:
@@ -1354,24 +1356,20 @@ def getObjectOutline(radius, o, Offset):  # FIXME: make this one operation indep
 
     outlines = []
     i = 0
-    # print(polygons, polygons.type)
+    if o.straight: join = 2
+    else: join = 1
     for p1 in polygons:  # sort by size before this???
-        print(p1.type, len(polygons))
+        #print(p1.type, len(polygons))
         i += 1
         if radius > 0:
-            p1 = p1.buffer(radius * offset, resolution=o.circle_detail)
+            p1 = p1.buffer(radius * offset, resolution=o.circle_detail,join_style = join,mitre_limit=2)
         outlines.append(p1)
 
-    print(outlines)
+    #print(outlines)
     if o.dont_merge:
         outline = sgeometry.MultiPolygon(outlines)
-    # for ci in range(0,len(p)):
-    #	outline.addContour(p[ci],p.isHole(ci))
     else:
-        # print(p)
         outline = shapely.ops.unary_union(outlines)
-    # outline = sgeometry.MultiPolygon([outline])
-    # shapelyToCurve('oboutline',outline,0)
     return outline
 
 
@@ -1674,7 +1672,7 @@ def rotTo2axes(e, axescombination):
 
 
 
-def reload_paths(o):
+def reload_pathss(o):
     oname = "cam_path_" + o.name
     s = bpy.context.scene
     # for o in s.objects:

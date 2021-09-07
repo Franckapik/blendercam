@@ -40,6 +40,9 @@ from cam.collision import *
 from cam import simple
 from cam.simple import *
 
+from cam import bridges
+from cam.bridges import *
+
 from cam import utils
 from cam import strategy
 
@@ -55,12 +58,13 @@ from cam.image_utils import *
 from cam.nc import iso
 
 
+
 def pointonline(a,b,c,tolerence):
     b=b-a  # convert to vector by subtracting origin
     c=c-a
     dot_pr = b.dot(c)  # b dot c
     norms = numpy.linalg.norm(b) * numpy.linalg.norm(c)  # find norms
-    angle=(numpy.rad2deg(numpy.arccos(dot_pr / norms))) # find angle between the two vectors
+    angle = (numpy.rad2deg(numpy.arccos(dot_pr / norms))) # find angle between the two vectors
     if angle > tolerence: return False
     else: return True
 
@@ -221,7 +225,7 @@ def exportGcodePath(filename, vertslist, operations):
             c.flush_nc()
 
         last_cutter = [o.cutter_id, o.cutter_diameter, o.cutter_type, o.cutter_flutes]
-        if o.cutter_type != 'LASER':
+        if o.cutter_type not in  ['LASER','PLASMA']:
             c.spindle(o.spindle_rpm, spdir_clockwise)  # start spindle
             c.write_spindle()
             c.flush_nc()
@@ -232,7 +236,7 @@ def exportGcodePath(filename, vertslist, operations):
 
         #        c.rapid(z=free_movement_height*1000)  #raise the spindle to safe height
         fmh = round(free_movement_height * 1000, 2)
-        if o.cutter_type != 'LASER':
+        if o.cutter_type not in  ['LASER','PLASMA']:
             c.write('G00 Z' + str(fmh) + '\n')
         if o.enable_A:
             if o.rotation_A == 0:
@@ -283,7 +287,7 @@ def exportGcodePath(filename, vertslist, operations):
         ii=0
         offline=0
         online=0
-        laser = True
+        cut= True  #active cut variable for laser or plasma
         for vi, vert in enumerate(verts):
             # skip the first vertex if this is a chained operation
             # ie: outputting more than one operation
@@ -360,12 +364,22 @@ def exportGcodePath(filename, vertslist, operations):
                     c.feedrate(f)
 
                 if o.machine_axes == '3':
-                    if o.cutter_type == 'LASER':
-                        if laser != True:
-                            c.write("(*************dwell->laser on)\n")
-                            c.write("G04 P" + str(round(o.Laser_delay, 2)) + "\n")
-                            c.write(o.Laser_on + '\n')
-                            laser = True
+                    if o.cutter_type in ['LASER', 'PLASMA']:
+                        if cut != True:
+                            if o.cutter_type == 'LASER':
+                                c.write("(*************dwell->laser on)\n")
+                                c.write("G04 P" + str(round(o.Laser_delay, 2)) + "\n")
+                                c.write(o.Laser_on + '\n')
+                            elif o.cutter_type == 'PLASMA':
+                                c.write("(*************dwell->PLASMA on)\n")
+                                plasma_delay=round(o.Plasma_delay,5)
+                                if plasma_delay > 0:
+                                    c.write("G04 P" + str(plasma_delay) + "\n")
+                                c.write(o.Plasma_on + '\n')
+                                plasma_dwell=round(o.Plasma_dwell,5)
+                                if plasma_dwell > 0:
+                                    c.write("G04 P" + str(plasma_dwell) + "\n")
+                            cut = True
                     else:
                         c.feed(x=vx, y=vy, z=vz)
                 else:
@@ -383,11 +397,16 @@ def exportGcodePath(filename, vertslist, operations):
                 #                    c.rapid(x=vx, y=vy, z=vz)
 
                 if o.machine_axes == '3':
-                    if o.cutter_type == 'LASER':
-                        if laser:
-                            c.write("(**************laser off)\n")
-                            c.write(o.Laser_off + '\n')
-                            laser = False
+                    if o.cutter_type in ['LASER', 'PLASMA']:
+                        if cut:
+                            if o.cutter_type == 'LASER':
+                                c.write("(**************laser off)\n")
+                                c.write(o.Laser_off + '\n')
+                            elif o.cutter_type == 'PLASMA':
+                                c.write("(**************Plasma off)\n")
+                                c.write(o.Plasma_off + '\n')
+
+                            cut = False
                         c.rapid(x=vx, y=vy)
                     else:
                         c.rapid(x=vx, y=vy, z=vz)
@@ -565,7 +584,9 @@ def getPath3axis(context, operation):
         if o.strategy == 'CARVE':
             pathSamples = []
             # for ob in o.objects:
+
             ob = bpy.data.objects[o.curve_object]
+
             pathSamples.extend(curveToChunks(ob))
             pathSamples = utils.sortChunks(pathSamples, o)  # sort before sampling
             pathSamples = chunksRefine(pathSamples, o)
@@ -573,9 +594,6 @@ def getPath3axis(context, operation):
             prepareArea(o)
             utils.getAmbient(o)
             pathSamples = getOffsetImageCavities(o, o.offset_image)
-            # for ch in pathSamples:
-            #	for i,p in enumerate(ch.points):
-            #	 ch.points[i]=(p[0],p[1],0)
             pathSamples = limitChunks(pathSamples, o)
             pathSamples = utils.sortChunks(pathSamples, o)  # sort before sampling
         elif o.strategy == 'CRAZY':
@@ -599,10 +617,9 @@ def getPath3axis(context, operation):
             pathSamples = getPathPattern(o)
 
             if o.strategy == 'OUTLINEFILL':
-                pathSamples = utils.sortChunks(pathSamples,
-                                               o)  # have to be sorted once before, because of the parenting inside of samplechunks
+                pathSamples = utils.sortChunks(pathSamples, o)  # have to be sorted once before, because of the parenting inside of samplechunks
             # chunksToMesh(pathSamples,o)#for testing pattern script
-            # return
+            
             if o.strategy in ['BLOCK', 'SPIRAL', 'CIRCLES']:
                 pathSamples = utils.connectChunksLow(pathSamples, o)
 
@@ -849,7 +866,7 @@ def getPath3axis(context, operation):
         strategy.drill(o)
 
     elif o.strategy == 'MEDIAL_AXIS':
-        strateg.medial_axis(o)
+        strategy.medial_axis(o)
 
 
 def getPath4axis(context, operation):
