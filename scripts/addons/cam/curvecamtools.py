@@ -27,13 +27,14 @@ from bpy.props import *
 from bpy.types import Operator
 from bpy_extras.io_utils import ImportHelper
 
-from cam import utils, pack, polygon_utils_cam, simple, gcodepath, bridges, parametric, gcodeimportparser
+from cam import utils, pack, polygon_utils_cam, simple, gcodepath, bridges, parametric, gcodeimportparser, joinery
 import shapely
 from shapely.geometry import Point, LineString, Polygon
 import mathutils
 import math
 from Equation import Expression
 import numpy as np
+
 
 # boolean operations for curve objects
 class CamCurveBoolean(bpy.types.Operator):
@@ -43,10 +44,10 @@ class CamCurveBoolean(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     boolean_type: bpy.props.EnumProperty(name='type',
-                                   items=(('UNION', 'Union', ''), ('DIFFERENCE', 'Difference', ''),
-                                          ('INTERSECT', 'Intersect', '')),
-                                   description='boolean type',
-                                   default='UNION')
+                                         items=(('UNION', 'Union', ''), ('DIFFERENCE', 'Difference', ''),
+                                                ('INTERSECT', 'Intersect', '')),
+                                         description='boolean type',
+                                         default='UNION')
 
     @classmethod
     def poll(cls, context):
@@ -59,6 +60,7 @@ class CamCurveBoolean(bpy.types.Operator):
         else:
             self.report({'ERROR'}, 'at least 2 curves must be selected')
             return {'CANCELLED'}
+
 
 class CamCurveConvexHull(bpy.types.Operator):
     """perform hull operation on single or multiple curves"""  # by Alain Pelletier april 2021
@@ -82,13 +84,20 @@ class CamCurveIntarsion(bpy.types.Operator):
     bl_label = "Intarsion"
     bl_options = {'REGISTER', 'UNDO', 'PRESET'}
 
-    diameter: bpy.props.FloatProperty(name="cutter diameter", default=.001, min=0, max=0.025, precision=4, unit="LENGTH")
-    tolerance: bpy.props.FloatProperty(name="cutout Tolerance", default=.0001, min=0, max=0.005, precision=4, unit="LENGTH")
-    backlight: bpy.props.FloatProperty(name="Backlight seat", default=0.000, min=0, max=0.010, precision=4, unit="LENGTH")
-    perimeter_cut: bpy.props.FloatProperty(name="Perimeter cut offset", default=0.000, min=0, max=0.100, precision=4, unit="LENGTH")
-    base_thickness:bpy.props.FloatProperty(name="Base material thickness", default=0.000, min=0, max=0.100, precision=4, unit="LENGTH")
-    intarsion_thickness:bpy.props.FloatProperty(name="Intarsion material thickness", default=0.000, min=0, max=0.100, precision=4, unit="LENGTH")
-    backlight_depth_from_top:bpy.props.FloatProperty(name="Backlight well depth", default=0.000, min=0, max=0.100, precision=4, unit="LENGTH")
+    diameter: bpy.props.FloatProperty(name="cutter diameter", default=.001, min=0, max=0.025, precision=4,
+                                      unit="LENGTH")
+    tolerance: bpy.props.FloatProperty(name="cutout Tolerance", default=.0001, min=0, max=0.005, precision=4,
+                                       unit="LENGTH")
+    backlight: bpy.props.FloatProperty(name="Backlight seat", default=0.000, min=0, max=0.010, precision=4,
+                                       unit="LENGTH")
+    perimeter_cut: bpy.props.FloatProperty(name="Perimeter cut offset", default=0.000, min=0, max=0.100, precision=4,
+                                           unit="LENGTH")
+    base_thickness: bpy.props.FloatProperty(name="Base material thickness", default=0.000, min=0, max=0.100,
+                                            precision=4, unit="LENGTH")
+    intarsion_thickness: bpy.props.FloatProperty(name="Intarsion material thickness", default=0.000, min=0, max=0.100,
+                                                 precision=4, unit="LENGTH")
+    backlight_depth_from_top: bpy.props.FloatProperty(name="Backlight well depth", default=0.000, min=0, max=0.100,
+                                                      precision=4, unit="LENGTH")
 
     @classmethod
     def poll(cls, context):
@@ -96,53 +105,51 @@ class CamCurveIntarsion(bpy.types.Operator):
 
     def execute(self, context):
         selected = context.selected_objects  # save original selected items
-        scene = bpy.context.scene
 
         simple.removeMultiple('intarsion_')
 
-        for ob in selected: ob.select_set(True)     # select original curves
+        for ob in selected: ob.select_set(True)  # select original curves
 
         #  Perimeter cut largen then intarsion pocket externally, optional
-        if self.perimeter_cut > 0.0:
-            utils.silhoueteOffset(context, self.perimeter_cut)
-            bpy.context.active_object.name = "intarsion_perimeter"
-            bpy.context.object.location[2] = -self.base_thickness
-            bpy.ops.object.select_all(action='DESELECT')  # deselect new curve
-            for ob in selected:                           # select original curves
-                ob.select_set(True)
-                context.view_layer.objects.active = ob    # make original curve active
 
-
-
-        diam = self.diameter * 1.05  + self.backlight * 2 #make the diameter 5% larger and compensate for backlight
+        diam = self.diameter * 1.05 + self.backlight * 2  # make the diameter 5% larger and compensate for backlight
         utils.silhoueteOffset(context, -diam / 2)
 
         o1 = bpy.context.active_object
         utils.silhoueteOffset(context, diam)
         o2 = bpy.context.active_object
-        utils.silhoueteOffset(context, -diam/ 2)
+        utils.silhoueteOffset(context, -diam / 2)
         o3 = bpy.context.active_object
         o1.select_set(True)
         o2.select_set(True)
         o3.select_set(False)
-        bpy.ops.object.delete(use_global=False)     # delete o1 and o2 temporary working curves
-        o3.name = "intarsion_pocket"                # this is the pocket for intarsion
+        bpy.ops.object.delete(use_global=False)  # delete o1 and o2 temporary working curves
+        o3.name = "intarsion_pocket"  # this is the pocket for intarsion
         bpy.context.object.location[2] = -self.intarsion_thickness
 
+        if self.perimeter_cut > 0.0:
+            utils.silhoueteOffset(context, self.perimeter_cut)
+            bpy.context.active_object.name = "intarsion_perimeter"
+            bpy.context.object.location[2] = -self.base_thickness
+            bpy.ops.object.select_all(action='DESELECT')  # deselect new curve
+
+        o3.select_set(True)
+        context.view_layer.objects.active = o3
         #   intarsion profile is the inside piece of the intarsion
-        utils.silhoueteOffset(context, -self.tolerance / 2)  #  make smaller curve for material profile
+        utils.silhoueteOffset(context, -self.tolerance / 2)  # make smaller curve for material profile
         bpy.context.object.location[2] = self.intarsion_thickness
         o4 = bpy.context.active_object
         bpy.context.active_object.name = "intarsion_profil"
         o4.select_set(False)
 
-        if self.backlight > 0.0:        #  Make a smaller curve for backlighting purposes
-            utils.silhoueteOffset(context, (-self.tolerance / 2)-self.backlight)
+        if self.backlight > 0.0:  # Make a smaller curve for backlighting purposes
+            utils.silhoueteOffset(context, (-self.tolerance / 2) - self.backlight)
             bpy.context.active_object.name = "intarsion_backlight"
-            bpy.context.object.location[2] = -self.backlight_depth_from_top-self.intarsion_thickness
+            bpy.context.object.location[2] = -self.backlight_depth_from_top - self.intarsion_thickness
             o4.select_set(True)
         o3.select_set(True)
         return {'FINISHED'}
+
 
 # intarsion or joints
 class CamCurveOvercuts(bpy.types.Operator):
@@ -151,7 +158,7 @@ class CamCurveOvercuts(bpy.types.Operator):
     bl_label = "Add Overcuts"
     bl_options = {'REGISTER', 'UNDO'}
 
-    diameter: bpy.props.FloatProperty(name="diameter", default=.003, min=0, max=100, precision=4, unit="LENGTH")
+    diameter: bpy.props.FloatProperty(name="diameter", default=.003175, min=0, max=100, precision=4, unit="LENGTH")
     threshold: bpy.props.FloatProperty(name="threshold", default=math.pi / 2 * .99, min=-3.14, max=3.14, precision=4,
                                        subtype="ANGLE", unit="ROTATION")
     do_outer: bpy.props.BoolProperty(name="Outer polygons", default=True)
@@ -162,7 +169,6 @@ class CamCurveOvercuts(bpy.types.Operator):
         return context.active_object is not None and (context.active_object.type in ['CURVE', 'FONT'])
 
     def execute(self, context):
-        # utils.silhoueteOffset(context,-self.diameter)
         o1 = bpy.context.active_object
         shapes = utils.curveToShapely(o1)
         negative_overcuts = []
@@ -171,7 +177,7 @@ class CamCurveOvercuts(bpy.types.Operator):
         for s in shapes:
             s = shapely.geometry.polygon.orient(s, 1)
             if s.boundary.type == 'LineString':
-                loops = [s.boundary]  # s=shapely.geometry.asMultiLineString(s)
+                loops = [s.boundary]
             else:
                 loops = s.boundary
 
@@ -193,10 +199,6 @@ class CamCurveOvercuts(bpy.types.Operator):
                         if not v1.length == 0 and not v2.length == 0:
                             a = v1.angle_signed(v2)
                             sign = 1
-                            # if ci==0:
-                            #	sign=-1
-                            # else:
-                            #	sign=1
 
                             if self.invert:  # and ci>0:
                                 sign *= -1
@@ -217,21 +219,19 @@ class CamCurveOvercuts(bpy.types.Operator):
                                     shape = l.buffer(diameter / 2, resolution=64)
 
                                 if sign > 0:
-                                    negative_overcuts.apppend(shape)
+                                    negative_overcuts.append(shape)
                                 else:
                                     positive_overcuts.append(shape)
 
                             print(a)
 
-        # for c in s.boundary:
         negative_overcuts = shapely.ops.unary_union(negative_overcuts)
         positive_overcuts = shapely.ops.unary_union(positive_overcuts)
-        # shapes.extend(overcuts)
+
         fs = shapely.ops.unary_union(shapes)
         fs = fs.union(positive_overcuts)
         fs = fs.difference(negative_overcuts)
-        o = utils.shapelyToCurve(o1.name + '_overcuts', fs, o1.location.z)
-        # o=utils.shapelyToCurve('overcuts',overcuts,0)
+        utils.shapelyToCurve(o1.name + '_overcuts', fs, o1.location.z)
         return {'FINISHED'}
 
 
@@ -242,7 +242,7 @@ class CamCurveOvercutsB(bpy.types.Operator):
     bl_label = "Add Overcuts-B"
     bl_options = {'REGISTER', 'UNDO'}
 
-    diameter: bpy.props.FloatProperty(name="Tool diameter", default=.003,
+    diameter: bpy.props.FloatProperty(name="Tool diameter", default=.003175,
                                       description='Tool bit diameter used in cut operation', min=0, max=100,
                                       precision=4, unit="LENGTH")
     style: bpy.props.EnumProperty(
@@ -276,7 +276,7 @@ class CamCurveOvercutsB(bpy.types.Operator):
         # a list of tuples for defining the inside corner
         # tuple is: (pos, v1, v2, angle, allCorners list index)
         insideCorners = []
-        diameter = self.diameter * 1.001
+        diameter = self.diameter * 1.002  # make bit size slightly larger to allow cutter
         radius = diameter / 2
         anglethreshold = math.pi - self.threshold
         centerv = mathutils.Vector((0, 0))
@@ -291,10 +291,13 @@ class CamCurveOvercutsB(bpy.types.Operator):
             nonlocal pos, centerv, radius, extendedv, sign, negative_overcuts, positive_overcuts
             # move the overcut shape center position 1 radius in direction v
             pos -= centerv * radius
-            if abs(a) < math.pi / 2:
+            print("abs(a)", abs(a))
+            if abs(a) <= math.pi / 2 + 0.0001:
+                print("<=pi/2")
                 shape = utils.Circle(radius, 64)
                 shape = shapely.affinity.translate(shape, pos.x, pos.y)
             else:  # elongate overcut circle to make sure tool bit can fit into slot
+                print(">pi/2")
                 p1 = pos + (extendedv * radius)
                 l = shapely.geometry.LineString((pos, p1))
                 shape = l.buffer(radius, resolution=64)
@@ -336,7 +339,7 @@ class CamCurveOvercutsB(bpy.types.Operator):
             return delta
 
         for s in shapes:
-            s = shapely.geometry.polygon.orient(s, 1)
+            s = shapely.geometry.polygon.orient(s, 1)  # ensure the shape is counterclockwise
             loops = [s.boundary] if s.boundary.type == 'LineString' else s.boundary
             outercurve = self.do_outer or len(loops) == 1
             for ci, c in enumerate(loops):
@@ -394,7 +397,6 @@ class CamCurveOvercutsB(bpy.types.Operator):
                                 else:  # DOGBONE style
                                     setCenterOffset(a)
 
-
                             elif isTBone and outsideCornerFound:
                                 # add an outside corner to the list
                                 cornerCnt += 1
@@ -402,7 +404,7 @@ class CamCurveOvercutsB(bpy.types.Operator):
                     # check if t-bone processing required
                     # if no inside corners then nothing to do
                     if isTBone and len(insideCorners) > 0:
-                        # print(cornerCnt, len(insideCorners))
+                        print("corner count", cornerCnt, "inside corner count", len(insideCorners))
                         # process all of the inside corners
                         for i, corner in enumerate(insideCorners):
                             pos, v1, v2, a, idx = corner
@@ -410,44 +412,44 @@ class CamCurveOvercutsB(bpy.types.Operator):
                             # if prev corner is outside corner
                             # calc index distance between current corner and prev
                             prevCorner = getCorner(i, -1)
-                            # print('first:', i, idx, prevCorner[IDX])
+                            print('first:', i, idx, prevCorner[IDX])
                             if getCornerDelta(prevCorner[IDX], idx) == 1:
                                 # make sure there is an outside corner
-                                # print(getCornerDelta(getCorner(i, -2)[IDX], idx))
+                                print(getCornerDelta(getCorner(i, -2)[IDX], idx))
                                 if getCornerDelta(getCorner(i, -2)[IDX], idx) > 2:
                                     setOtherEdge(v1, v2, a)
-                                    # print('first won')
+                                    print('first won')
                                     continue
 
                             nextCorner = getCorner(i, 1)
-                            # print('second:', i, idx, nextCorner[IDX])
+                            print('second:', i, idx, nextCorner[IDX])
                             if getCornerDelta(idx, nextCorner[IDX]) == 1:
                                 # make sure there is an outside corner
-                                # print(getCornerDelta(idx, getCorner(i, 2)[IDX]))
+                                print(getCornerDelta(idx, getCorner(i, 2)[IDX]))
                                 if getCornerDelta(idx, getCorner(i, 2)[IDX]) > 2:
-                                    # print('second won')
+                                    print('second won')
                                     setOtherEdge(-v2, -v1, a)
                                     continue
 
-                            # print('third')
+                            print('third')
                             if getCornerDelta(prevCorner[IDX], idx) == 3:
                                 # check if they share the same edge
                                 a1 = v1.angle_signed(prevCorner[V2]) * 180.0 / math.pi
-                                # print('third won', a1)
+                                print('third won', a1)
                                 if a1 < -135 or a1 > 135:
                                     setOtherEdge(-v2, -v1, a)
                                     continue
 
-                            # print('fourth')
+                            print('fourth')
                             if getCornerDelta(idx, nextCorner[IDX]) == 3:
                                 # check if they share the same edge
                                 a1 = v2.angle_signed(nextCorner[V1]) * 180.0 / math.pi
-                                # print('fourth won', a1)
+                                print('fourth won', a1)
                                 if a1 < -135 or a1 > 135:
                                     setOtherEdge(v1, v2, a)
                                     continue
 
-                            # print('***No Win***')
+                            print('***No Win***')
                             # the default if no other rules pass
                             setCenterOffset(a)
 
@@ -456,7 +458,9 @@ class CamCurveOvercutsB(bpy.types.Operator):
         fs = shapely.ops.unary_union(shapes)
         fs = fs.union(positive_overcuts)
         fs = fs.difference(negative_overcuts)
-        o = utils.shapelyToCurve(o1.name + '_overcuts', fs, o1.location.z)
+        #        utils.shapelyToCurve(o1.name + '_overcuts', positive_overcuts, o1.location.z)
+        #        utils.shapelyToCurve(o1.name + '_overcuts', negative_overcuts, o1.location.z)
+        utils.shapelyToCurve(o1.name + '_overcuts', fs, o1.location.z)
         return {'FINISHED'}
 
 
@@ -485,8 +489,7 @@ class CamCurveRemoveDoubles(bpy.types.Operator):
             bpy.ops.mesh.remove_doubles()
             bpy.ops.object.editmode_toggle()
             bpy.ops.object.convert(target='CURVE')
-            a = bpy.context.active_object
-            # a.data.show_normal_face = False
+
             if mode:
                 bpy.ops.object.editmode_toggle()
 
@@ -596,9 +599,9 @@ class CamOffsetSilhouete(bpy.types.Operator):
 
     offset: bpy.props.FloatProperty(name="offset", default=.003, min=-100, max=100, precision=4, unit="LENGTH")
     mitrelimit: bpy.props.FloatProperty(name="Mitre Limit", default=.003, min=0.0, max=20, precision=4, unit="LENGTH")
-    style:  bpy.props.EnumProperty(name="type of curve", items=(
-        ('1', 'Round', ''), ('2', 'Mitre', ''),('3','Bevel','')))
-    opencurve:  bpy.props.BoolProperty(name="Dialate open curve", default = False)
+    style: bpy.props.EnumProperty(name="type of curve", items=(
+        ('1', 'Round', ''), ('2', 'Mitre', ''), ('3', 'Bevel', '')))
+    opencurve: bpy.props.BoolProperty(name="Dialate open curve", default=False)
 
     @classmethod
     def poll(cls, context):
@@ -610,23 +613,26 @@ class CamOffsetSilhouete(bpy.types.Operator):
         if self.opencurve and ob.type == 'CURVE':
             bpy.ops.object.duplicate()
             obj = context.active_object
+            bpy.ops.object.transform_apply(location=True, rotation=True, scale=True)  # apply all transforms
+            bpy.context.object.data.resolution_u = 60
             bpy.ops.object.convert(target='MESH')
             bpy.context.active_object.name = "temp_mesh"
 
             coords = []
             for v in obj.data.vertices:  # extract X,Y coordinates from the vertices data
-                coords.append((v.co.x,v.co.y))
+                coords.append((v.co.x, v.co.y))
 
             simple.removeMultiple('temp_mesh')  # delete temporary mesh
             simple.removeMultiple('dilation')  # delete old dilation objects
 
-            line = LineString(coords)   # convert coordinates to shapely LineString datastructure
-            print("line length=", round(line.length*1000), 'mm')
+            line = LineString(coords)  # convert coordinates to shapely LineString datastructure
+            print("line length=", round(line.length * 1000), 'mm')
 
-            dilated = line.buffer(self.offset, cap_style=1, resolution=16, mitre_limit=self.mitrelimit) # use shapely to expand
+            dilated = line.buffer(self.offset, cap_style=1, resolution=16,
+                                  mitre_limit=self.mitrelimit)  # use shapely to expand
             polygon_utils_cam.shapelyToCurve("dilation", dilated, 0)
         else:
-            utils.silhoueteOffset(context, self.offset,int(self.style),self.mitrelimit)
+            utils.silhoueteOffset(context, self.offset, int(self.style), self.mitrelimit)
         return {'FINISHED'}
 
 
@@ -654,8 +660,4 @@ class CamObjectSilhouete(bpy.types.Operator):
         bpy.ops.object.origin_set(type='ORIGIN_CURSOR')
         return {'FINISHED'}
 
-#---------------------------------------------------
-
-
-
-
+# ---------------------------------------------------

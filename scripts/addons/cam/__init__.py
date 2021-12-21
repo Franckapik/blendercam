@@ -19,28 +19,31 @@
 #
 # ***** END GPL LICENCE BLOCK *****
 
-import bpy, bgl, blf
-import math, time
-from mathutils import *
-from bpy_extras.object_utils import object_data_add
-from bpy.props import *
+import bgl
 import bl_operators
-from bpy.types import Menu, Operator, UIList, AddonPreferences
-
-from cam import ui, ops,curvecamtools,curvecamequation, utils, simple, polygon_utils_cam  # , post_processors
+import blf
+import bpy
+import math
 import numpy
-
-from shapely import geometry as sgeometry
-from bpy.app.handlers import persistent
-import subprocess, os, sys, threading
+import os
 import pickle
-
-
+import subprocess
+import sys
+import threading
+import time
+from bpy.app.handlers import persistent
+from bpy.props import *
+from bpy.types import Menu, Operator, UIList, AddonPreferences
+from bpy_extras.object_utils import object_data_add
+from cam import ui, ops, curvecamtools, curvecamequation, curvecamcreate, utils, simple, \
+    polygon_utils_cam  # , post_processors
+from mathutils import *
+from shapely import geometry as sgeometry
 
 bl_info = {
     "name": "CAM - gcode generation tools",
     "author": "Vilem Novak",
-    "version": (0, 9, 2),
+    "version": (0, 9, 3),
     "blender": (2, 80, 0),
     "location": "Properties > render",
     "description": "Generate machining paths for CNC",
@@ -68,7 +71,7 @@ def updateOperation(self, context):
     scene = context.scene
     ao = scene.cam_operations[scene.cam_active_operation]
 
-    if ao.hide_all_others == True:
+    if ao.hide_all_others:
         for _ao in scene.cam_operations:
             if _ao.path_object_name in bpy.data.objects:
                 other_obj = bpy.data.objects[_ao.path_object_name]
@@ -79,7 +82,7 @@ def updateOperation(self, context):
     else:
         for path_obj_name in was_hidden_dict:
             print(was_hidden_dict)
-            if was_hidden_dict[path_obj_name] == True:
+            if was_hidden_dict[path_obj_name]:
                 # Find object and make it hidde, then reset 'hidden' flag
                 obj = bpy.data.objects[path_obj_name]
                 obj.hide = True
@@ -93,7 +96,7 @@ def updateOperation(self, context):
         ob = bpy.data.objects[ao.path_object_name]
         ob.select_set(state=True, view_layer=None)
         # Show object if, it's was hidden
-        if ob.hide == True:
+        if ob.hide:
             ob.hide = False
             was_hidden_dict[ao.path_object_name] = True
         bpy.context.scene.objects.active = ob
@@ -163,7 +166,6 @@ class machineSettings(bpy.types.PropertyGroup):
     feedrate_default: bpy.props.FloatProperty(name="Feedrate default /min", default=1.5, min=0.00001, max=320000,
                                               precision=PRECISION, unit='LENGTH')
 
-                                                  
     # UNSUPPORTED:
 
     spindle_min: bpy.props.FloatProperty(name="Spindle speed minimum RPM", default=5000, min=0.00001, max=320000,
@@ -236,12 +238,13 @@ class PackObjectsSettings(bpy.types.PropertyGroup):
                             description="minimum distance between objects(should be at least cutter diameter!)",
                             min=0.001, max=10, default=0.01, precision=PRECISION, unit="LENGTH")
     tolerance: FloatProperty(name="Placement Tolerance",
-                            description="Tolerance for placement: smaller value slower placemant",
-                            min=0.001, max=0.02, default=0.005, precision=PRECISION, unit="LENGTH")                            
+                             description="Tolerance for placement: smaller value slower placemant",
+                             min=0.001, max=0.02, default=0.005, precision=PRECISION, unit="LENGTH")
     rotate: bpy.props.BoolProperty(name="enable rotation", description="Enable rotation of elements", default=True)
-    rotate_angle: FloatProperty(name="Placement Angle rotation step", description="bigger rotation angle,faster placemant", default=0.19635*4, min=0.19635, max=math.pi, precision=5,
-                                             subtype="ANGLE", unit="ROTATION")
-                   
+    rotate_angle: FloatProperty(name="Placement Angle rotation step",
+                                description="bigger rotation angle,faster placemant", default=0.19635 * 4, min=0.19635,
+                                max=math.pi, precision=5,
+                                subtype="ANGLE", unit="ROTATION")
 
 
 class SliceObjectsSettings(bpy.types.PropertyGroup):
@@ -255,12 +258,17 @@ class SliceObjectsSettings(bpy.types.PropertyGroup):
     slice_3d: bpy.props.BoolProperty(name="3d slice", description="for 3d carving", default=False)
     indexes: bpy.props.BoolProperty(name="add indexes", description="adds index text of layer + index", default=True)
 
+
 class import_settings(bpy.types.PropertyGroup):
-    split_layers: BoolProperty(name="Split Layers", description="Save every layer as single Objects in Collection", default = False )
-    subdivide: BoolProperty(name="Subdivide", description="Only Subdivide gcode segments that are bigger than 'Segment length' ", default = False)
-    output: bpy.props.EnumProperty(name="output type", items=(('mesh', 'Mesh', 'Make a mesh output'), ('curve', 'Curve', 'Make curve output')), default='curve')
-    max_segment_size: FloatProperty(name = "", description = "Only Segments bigger then this value get subdivided",
-        default = 0.001, min = 0.0001, max = 1.0, unit="LENGTH")
+    split_layers: BoolProperty(name="Split Layers", description="Save every layer as single Objects in Collection",
+                               default=False)
+    subdivide: BoolProperty(name="Subdivide",
+                            description="Only Subdivide gcode segments that are bigger than 'Segment length' ",
+                            default=False)
+    output: bpy.props.EnumProperty(name="output type", items=(
+        ('mesh', 'Mesh', 'Make a mesh output'), ('curve', 'Curve', 'Make curve output')), default='curve')
+    max_segment_size: FloatProperty(name="", description="Only Segments bigger then this value get subdivided",
+                                    default=0.001, min=0.0001, max=1.0, unit="LENGTH")
 
 
 def operationValid(self, context):
@@ -272,14 +280,14 @@ def operationValid(self, context):
     o = bpy.context.scene.cam_operations[bpy.context.scene.cam_active_operation]
     if o.geometry_source == 'OBJECT':
         if not o.object_name in bpy.data.objects:
-            o.valid = False;
+            o.valid = False
             o.warnings = invalidmsg
     if o.geometry_source == 'COLLECTION':
         if not o.collection_name in bpy.data.collections:
-            o.valid = False;
+            o.valid = False
             o.warnings = invalidmsg
         elif len(bpy.data.collections[o.collection_name].objects) == 0:
-            o.valid = False;
+            o.valid = False
             o.warnings = invalidmsg
 
     if o.geometry_source == 'IMAGE':
@@ -304,11 +312,11 @@ def updateOperationValid(self, context):
 def updateChipload(self, context):
     """this is very simple computation of chip size, could be very much improved"""
     print('update chipload ')
-    o = self;
+    o = self
     # self.changed=True
     # Old chipload
-    o.chipload = ((o.feedrate / (o.spindle_rpm * o.cutter_flutes)))
-    ###New chipload with chip thining compensation.
+    o.chipload = (o.feedrate / (o.spindle_rpm * o.cutter_flutes))
+    # New chipload with chip thining compensation.
     # I have tried to combine these 2 formulas to compinsate for the phenomenon of chip thinning when cutting at less than 50% cutter engagement with cylindrical end mills.
     # formula 1 Nominal Chipload is " feedrate mm/minute = spindle rpm x chipload x cutter diameter mm x cutter_flutes "
     # formula 2 (.5*(cutter diameter mm devided by dist_between_paths)) devided by square root of ((cutter diameter mm devided by dist_between_paths)-1) x Nominal Chipload
@@ -352,7 +360,7 @@ def updateStrategy(o, context):
 
 
 def updateCutout(o, context):
-    pass;
+    pass
 
 
 # if o.outlines_count>1:
@@ -364,35 +372,41 @@ def updateExact(o, context):
     o.changed = True
     o.update_zbufferimage_tag = True
     o.update_offsetimage_tag = True
-    if o.use_exact and (o.strategy == 'WATERLINE' or o.strategy == 'POCKET' or o.strategy == 'MEDIAL_AXIS' or o.inverse):
-    #    o.use_exact = False
-        o.use_opencamlib=False
+    if o.use_exact and (
+            o.strategy == 'WATERLINE' or o.strategy == 'POCKET' or o.strategy == 'MEDIAL_AXIS' or o.inverse):
+        #    o.use_exact = False
+        o.use_opencamlib = False
         print('waterline and pocket cannot use opencamlib')
 
 
 def updateOpencamlib(o, context):
     print('update opencamlib ')
     o.changed = True
-    if o.use_opencamlib and (o.strategy == 'WATERLINE' or o.strategy == 'POCKET' or o.strategy == 'MEDIAL_AXIS' or o.inverse):
+    if o.use_opencamlib and (
+            o.strategy == 'WATERLINE' or o.strategy == 'POCKET' or o.strategy == 'MEDIAL_AXIS' or o.inverse):
         o.use_exact = False
-        o.use_opencamlib=False
+        o.use_opencamlib = False
         print('waterline and pocket cannot use opencamlib')
+
 
 def updateBridges(o, context):
     print('update bridges ')
     o.changed = True
 
-#def updateRest(o, context):
+
+# def updateRest(o, context):
 #    print('update rest ')
 #    # if o.use_layers:
-    # o.parallel_step_back = False
+# o.parallel_step_back = False
 #    o.changed = True
-    
+
 def updateRest(o, context):
     print('update rest ')
     o.changed = True
+
+
 #    if (o.strategy == 'WATERLINE'):
-#        o.use_layers = True    
+#        o.use_layers = True
 
 
 def getStrategyList(scene, context):
@@ -414,14 +428,13 @@ def getStrategyList(scene, context):
         ('MEDIAL_AXIS', 'Medial axis',
          'Medial axis, must be used with V or ball cutter, for engraving various width shapes with a single stroke ')
     ]
- #   if use_experimental:
- #       items.extend([('MEDIAL_AXIS', 'Medial axis - EXPERIMENTAL',
- #                      'Medial axis, must be used with V or ball cutter, for engraving various width shapes with a single stroke ')]);
- # ('PENCIL', 'Pencil - EXPERIMENTAL','Pencil operation - detects negative corners in the model and mills only those.'),
- # ('CRAZY', 'Crazy path - EXPERIMENTAL', 'Crazy paths - dont even think about using this!'),
- #                     ('PROJECTED_CURVE', 'Projected curve - EXPERIMENTAL', 'project 1 curve towards other curve')])
+    #   if use_experimental:
+    #       items.extend([('MEDIAL_AXIS', 'Medial axis - EXPERIMENTAL',
+    #                      'Medial axis, must be used with V or ball cutter, for engraving various width shapes with a single stroke ')]);
+    # ('PENCIL', 'Pencil - EXPERIMENTAL','Pencil operation - detects negative corners in the model and mills only those.'),
+    # ('CRAZY', 'Crazy path - EXPERIMENTAL', 'Crazy paths - dont even think about using this!'),
+    #                     ('PROJECTED_CURVE', 'Projected curve - EXPERIMENTAL', 'project 1 curve towards other curve')])
     return items
-
 
 
 class camOperation(bpy.types.PropertyGroup):
@@ -434,7 +447,8 @@ class camOperation(bpy.types.PropertyGroup):
         description="Remove redundant points sharing the same angle"
                     " as the start vector",
         default=False)
-    simplify_tol: bpy.props.IntProperty(name="Tolerance", description='lower number means more precise', default=50, min=1, max=1000)
+    simplify_tol: bpy.props.IntProperty(name="Tolerance", description='lower number means more precise', default=50,
+                                        min=1, max=1000)
     hide_all_others: bpy.props.BoolProperty(
         name="Hide all others",
         description="Hide all other tool pathes except toolpath"
@@ -446,14 +460,15 @@ class camOperation(bpy.types.PropertyGroup):
         default=False)
     object_name: bpy.props.StringProperty(name='Object', description='object handled by this operation',
                                           update=updateOperationValid)
-    collection_name: bpy.props.StringProperty(name='Collection', description='Object collection handled by this operation',
-                                         update=updateOperationValid)
+    collection_name: bpy.props.StringProperty(name='Collection',
+                                              description='Object collection handled by this operation',
+                                              update=updateOperationValid)
     curve_object: bpy.props.StringProperty(name='Curve source',
-                                            description='curve which will be sampled along the 3d object',
-                                            update=operationValid)
+                                           description='curve which will be sampled along the 3d object',
+                                           update=operationValid)
     curve_object1: bpy.props.StringProperty(name='Curve target',
-                                             description='curve which will serve as attractor for the cutter when the cutter follows the curve',
-                                             update=operationValid)
+                                            description='curve which will serve as attractor for the cutter when the cutter follows the curve',
+                                            update=operationValid)
     source_image_name: bpy.props.StringProperty(name='image_source', description='image source', update=operationValid)
     geometry_source: EnumProperty(name='Source of data',
                                   items=(
@@ -475,16 +490,16 @@ class camOperation(bpy.types.PropertyGroup):
                               description='Type of cutter used',
                               default='END', update=updateZbufferImage)
     cutter_object_name: bpy.props.StringProperty(name='Cutter object',
-                                                  description='object used as custom cutter for this operation',
-                                                  update=updateZbufferImage)
+                                                 description='object used as custom cutter for this operation',
+                                                 update=updateZbufferImage)
 
     machine_axes: EnumProperty(name='Number of axes',
-                                items=(
-                                    ('3', '3 axis', 'a'),
-                                    ('4', '#4 axis - EXPERIMENTAL', 'a'),
-                                    ('5', '#5 axis - EXPERIMENTAL', 'a')),
-                                description='How many axes will be used for the operation',
-                                default='3', update=updateStrategy)
+                               items=(
+                                   ('3', '3 axis', 'a'),
+                                   ('4', '#4 axis - EXPERIMENTAL', 'a'),
+                                   ('5', '#5 axis - EXPERIMENTAL', 'a')),
+                               description='How many axes will be used for the operation',
+                               default='3', update=updateStrategy)
     strategy: EnumProperty(name='Strategy',
                            items=getStrategyList,
                            description='Strategy',
@@ -551,9 +566,9 @@ class camOperation(bpy.types.PropertyGroup):
     pocket_option: EnumProperty(name='Start Position', items=(
         ('INSIDE', 'Inside', 'a'), ('OUTSIDE', 'Outside', 'a'), ('MIDDLE', 'Middle', 'a')),
                                 description='Pocket starting position', default='MIDDLE', update=updateRest)
-    pocketToCurve:bpy.props.BoolProperty(name="Pocket to curve",
-                                  description="generates a curve instead of a path",
-                                  default=False, update=updateRest)
+    pocketToCurve: bpy.props.BoolProperty(name="Pocket to curve",
+                                          description="generates a curve instead of a path",
+                                          default=False, update=updateRest)
     # Cutout
     cut_type: EnumProperty(name='Cut',
                            items=(('OUTSIDE', 'Outside', 'a'), ('INSIDE', 'Inside', 'a'), ('ONLINE', 'On line', 'a')),
@@ -561,90 +576,104 @@ class camOperation(bpy.types.PropertyGroup):
     outlines_count: bpy.props.IntProperty(name="Outlines count`EXPERIMENTAL", description="Outlines count", default=1,
                                           min=1, max=32, update=updateCutout)
     straight: bpy.props.BoolProperty(name="Overshoot Style",
-                                  description="Use overshoot cutout instead of conventional rounded",
-                                  default=False, update=updateRest)
+                                     description="Use overshoot cutout instead of conventional rounded",
+                                     default=False, update=updateRest)
     # cutter
     cutter_id: IntProperty(name="Tool number", description="For machines which support tool change based on tool id",
                            min=0, max=10000, default=1, update=updateRest)
     cutter_diameter: FloatProperty(name="Cutter diameter", description="Cutter diameter = 2x cutter radius",
-                                    min=0.000001, max=10, default=0.003, precision=PRECISION, unit="LENGTH",
-                                    update=updateOffsetImage)
+                                   min=0.000001, max=10, default=0.003, precision=PRECISION, unit="LENGTH",
+                                   update=updateOffsetImage)
     cylcone_diameter: FloatProperty(name="Bottom Diameter", description="Bottom diameter",
                                     min=0.000001, max=10, default=0.003, precision=PRECISION, unit="LENGTH",
                                     update=updateOffsetImage)
     cutter_length: FloatProperty(name="#Cutter length", description="#not supported#Cutter length", min=0.0, max=100.0,
-                                  default=25.0, precision=PRECISION, unit="LENGTH", update=updateOffsetImage)
+                                 default=25.0, precision=PRECISION, unit="LENGTH", update=updateOffsetImage)
     cutter_flutes: IntProperty(name="Cutter flutes", description="Cutter flutes", min=1, max=20, default=2,
-                                update=updateChipload)
+                               update=updateChipload)
     cutter_tip_angle: FloatProperty(name="Cutter v-carve angle", description="Cutter v-carve angle", min=0.0,
-                                     max=180.0, default=60.0, precision=PRECISION, update=updateOffsetImage)
+                                    max=180.0, default=60.0, precision=PRECISION, update=updateOffsetImage)
     ball_radius: FloatProperty(name="Ball radius", description="Radius of", min=0.0,
-                                     max=0.035, default=0.001, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
-    #ball_cone_flute: FloatProperty(name="BallCone Flute Length", description="length of flute", min=0.0,
+                               max=0.035, default=0.001, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
+    # ball_cone_flute: FloatProperty(name="BallCone Flute Length", description="length of flute", min=0.0,
     #                                 max=0.1, default=0.017, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
     bull_corner_radius: FloatProperty(name="Bull Corner Radius", description="Radius tool bit corner", min=0.0,
-                                     max=0.035, default=0.005, unit="LENGTH", precision=PRECISION, update=updateOffsetImage)
+                                      max=0.035, default=0.005, unit="LENGTH", precision=PRECISION,
+                                      update=updateOffsetImage)
 
     cutter_description: StringProperty(name="Tool Description", default="", update=updateOffsetImage)
-    
+
     Laser_on: bpy.props.StringProperty(name="Laser ON string", default="M68 E0 Q100")
     Laser_off: bpy.props.StringProperty(name="Laser OFF string", default="M68 E0 Q0")
-    Laser_cmd: bpy.props.StringProperty(name="Laser command", default="M68 E0 Q")    
-    Laser_delay: bpy.props.FloatProperty(name="Laser ON Delay", description="time after fast move to turn on laser and let machine stabilize", default=0.2)    
+    Laser_cmd: bpy.props.StringProperty(name="Laser command", default="M68 E0 Q")
+    Laser_delay: bpy.props.FloatProperty(name="Laser ON Delay",
+                                         description="time after fast move to turn on laser and let machine stabilize",
+                                         default=0.2)
     Plasma_on: bpy.props.StringProperty(name="Plasma ON string", default="M03")
     Plasma_off: bpy.props.StringProperty(name="Plasma OFF string", default="M05")
-    Plasma_delay: bpy.props.FloatProperty(name="Plasma ON Delay", description="time after fast move to turn on Plasma and let machine stabilize", default=0.1)
-    Plasma_dwell: bpy.props.FloatProperty(name="Plasma dwell time", description="Time to dwell and warm up the torch", default=0.0)
+    Plasma_delay: bpy.props.FloatProperty(name="Plasma ON Delay",
+                                          description="time after fast move to turn on Plasma and let machine stabilize",
+                                          default=0.1)
+    Plasma_dwell: bpy.props.FloatProperty(name="Plasma dwell time", description="Time to dwell and warm up the torch",
+                                          default=0.0)
 
     # steps
     dist_between_paths: bpy.props.FloatProperty(name="Distance between toolpaths", default=0.001, min=0.00001, max=32,
-                                                 precision=PRECISION, unit="LENGTH", update=updateRest)
+                                                precision=PRECISION, unit="LENGTH", update=updateRest)
     dist_along_paths: bpy.props.FloatProperty(name="Distance along toolpaths", default=0.0002, min=0.00001, max=32,
-                                               precision=PRECISION, unit="LENGTH", update=updateRest)
+                                              precision=PRECISION, unit="LENGTH", update=updateRest)
     parallel_angle: bpy.props.FloatProperty(name="Angle of paths", default=0, min=-360, max=360, precision=0,
-                                             subtype="ANGLE", unit="ROTATION", update=updateRest)
-    old_rotation_A: bpy.props.FloatProperty(name="A axis angle", description="old value of Rotate A axis\nto specified angle",default=0, min=-360, max=360, precision=0, subtype="ANGLE", unit="ROTATION", update=updateRest)
-		
-    old_rotation_B: bpy.props.FloatProperty(name="A axis angle", description="old value of Rotate A axis\nto specified angle",default=0, min=-360, max=360, precision=0, subtype="ANGLE", unit="ROTATION", update=updateRest)
+                                            subtype="ANGLE", unit="ROTATION", update=updateRest)
+    old_rotation_A: bpy.props.FloatProperty(name="A axis angle",
+                                            description="old value of Rotate A axis\nto specified angle", default=0,
+                                            min=-360, max=360, precision=0, subtype="ANGLE", unit="ROTATION",
+                                            update=updateRest)
 
+    old_rotation_B: bpy.props.FloatProperty(name="A axis angle",
+                                            description="old value of Rotate A axis\nto specified angle", default=0,
+                                            min=-360, max=360, precision=0, subtype="ANGLE", unit="ROTATION",
+                                            update=updateRest)
 
-    rotation_A: bpy.props.FloatProperty(name="A axis angle", description="Rotate A axis\nto specified angle",default=0, min=-360, max=360, precision=0,
-                                             subtype="ANGLE", unit="ROTATION", update=updateRest)
-    enable_A: bpy.props.BoolProperty(name="Enable A axis", description="Rotate A axis", default=False, update=updateRest)
+    rotation_A: bpy.props.FloatProperty(name="A axis angle", description="Rotate A axis\nto specified angle", default=0,
+                                        min=-360, max=360, precision=0,
+                                        subtype="ANGLE", unit="ROTATION", update=updateRest)
+    enable_A: bpy.props.BoolProperty(name="Enable A axis", description="Rotate A axis", default=False,
+                                     update=updateRest)
     A_along_x: bpy.props.BoolProperty(name="A Along X ", description="A Parallel to X", default=True, update=updateRest)
 
-    rotation_B: bpy.props.FloatProperty(name="B axis angle", description="Rotate B axis\nto specified angle",default=0, min=-360, max=360, precision=0,
-                                             subtype="ANGLE", unit="ROTATION", update=updateRest)
-    enable_B: bpy.props.BoolProperty(name="Enable B axis", description="Rotate B axis", default=False, update=updateRest)
-                                             
+    rotation_B: bpy.props.FloatProperty(name="B axis angle", description="Rotate B axis\nto specified angle", default=0,
+                                        min=-360, max=360, precision=0,
+                                        subtype="ANGLE", unit="ROTATION", update=updateRest)
+    enable_B: bpy.props.BoolProperty(name="Enable B axis", description="Rotate B axis", default=False,
+                                     update=updateRest)
 
     # carve only
     carve_depth: bpy.props.FloatProperty(name="Carve depth", default=0.001, min=-.100, max=32, precision=PRECISION,
-                                          unit="LENGTH", update=updateRest)
+                                         unit="LENGTH", update=updateRest)
 
     # drill only
     drill_type: EnumProperty(name='Holes on', items=(
         ('MIDDLE_SYMETRIC', 'Middle of symetric curves', 'a'), ('MIDDLE_ALL', 'Middle of all curve parts', 'a'),
         ('ALL_POINTS', 'All points in curve', 'a')), description='Strategy to detect holes to drill',
-                              default='MIDDLE_SYMETRIC', update=updateRest)
+                             default='MIDDLE_SYMETRIC', update=updateRest)
     # waterline only
     slice_detail: bpy.props.FloatProperty(name="Distance betwen slices", default=0.001, min=0.00001, max=32,
-                                           precision=PRECISION, unit="LENGTH", update=updateRest)
+                                          precision=PRECISION, unit="LENGTH", update=updateRest)
     waterline_fill: bpy.props.BoolProperty(name="Fill areas between slices",
-                                            description="Fill areas between slices in waterline mode", default=True,
-                                            update=updateRest)
+                                           description="Fill areas between slices in waterline mode", default=True,
+                                           update=updateRest)
     waterline_project: bpy.props.BoolProperty(name="Project paths - not recomended",
-                                               description="Project paths in areas between slices", default=True,
-                                               update=updateRest)
+                                              description="Project paths in areas between slices", default=True,
+                                              update=updateRest)
 
     # movement and ramps
     use_layers: bpy.props.BoolProperty(name="Use Layers", description="Use layers for roughing", default=True,
-                                        update=updateRest)
+                                       update=updateRest)
     stepdown: bpy.props.FloatProperty(name="Step down", default=0.01, min=0.00001, max=32, precision=PRECISION,
-                                       unit="LENGTH", update=updateRest)
+                                      unit="LENGTH", update=updateRest)
     first_down: bpy.props.BoolProperty(name="First down",
-                                        description="First go down on a contour, then go to the next one",
-                                        default=False, update=updateRest)
+                                       description="First go down on a contour, then go to the next one",
+                                       default=False, update=updateRest)
     ramp: bpy.props.BoolProperty(name="Ramp in - EXPERIMENTAL",
                                  description="Ramps down the whole contour, so the cutline looks like helix",
                                  default=False, update=updateRest)
@@ -657,12 +686,14 @@ class camOperation(bpy.types.PropertyGroup):
                                             precision=1, subtype="ANGLE", unit="ROTATION", update=updateRest)
     helix_enter: bpy.props.BoolProperty(name="Helix enter - EXPERIMENTAL", description="Enter material in helix",
                                         default=False, update=updateRest)
-    lead_in:  bpy.props.FloatProperty(name="Lead in radius", description="Lead out radius for torch or laser to turn off",
-                                    min=0.00, max=1, default=0.0, precision=PRECISION, unit="LENGTH")
-    lead_out:  bpy.props.FloatProperty(name="Lead out radius", description="Lead out radius for torch or laser to turn off",
-                                    min=0.00, max=1, default=0.0, precision=PRECISION, unit="LENGTH")
+    lead_in: bpy.props.FloatProperty(name="Lead in radius",
+                                     description="Lead out radius for torch or laser to turn off",
+                                     min=0.00, max=1, default=0.0, precision=PRECISION, unit="LENGTH")
+    lead_out: bpy.props.FloatProperty(name="Lead out radius",
+                                      description="Lead out radius for torch or laser to turn off",
+                                      min=0.00, max=1, default=0.0, precision=PRECISION, unit="LENGTH")
     profile_start: bpy.props.IntProperty(name="Start point", description="Start point offset", min=0, default=0,
-                                update=updateRest)
+                                         update=updateRest)
 
     # helix_angle: bpy.props.FloatProperty(name="Helix ramp angle", default=3*math.pi/180, min=0.00001, max=math.pi*0.4999,precision=1, subtype="ANGLE" , unit="ROTATION" , update = updateRest)
     helix_diameter: bpy.props.FloatProperty(name='Helix diameter % of cutter D', default=90, min=10, max=100,
@@ -677,8 +708,9 @@ class camOperation(bpy.types.PropertyGroup):
 
     minz_from_ob: bpy.props.BoolProperty(name="Depth from object", description="Operation ending depth from object",
                                          default=True, update=updateRest)
-    minz_from_material: bpy.props.BoolProperty(name="Depth from material", description="Operation ending depth from material",
-                                         default=False, update=updateRest)
+    minz_from_material: bpy.props.BoolProperty(name="Depth from material",
+                                               description="Operation ending depth from material",
+                                               default=False, update=updateRest)
     minz: bpy.props.FloatProperty(name="Operation depth end", default=-0.01, min=-3, max=3, precision=PRECISION,
                                   unit="LENGTH",
                                   update=updateRest)  # this is input minz. True minimum z can be something else, depending on material e.t.c.
@@ -701,49 +733,49 @@ class camOperation(bpy.types.PropertyGroup):
     ####################################################
 
     source_image_scale_z: bpy.props.FloatProperty(name="Image source depth scale", default=0.01, min=-1, max=1,
-                                                   precision=PRECISION, unit="LENGTH", update=updateZbufferImage)
-    source_image_size_x: bpy.props.FloatProperty(name="Image source x size", default=0.1, min=-10, max=10,
                                                   precision=PRECISION, unit="LENGTH", update=updateZbufferImage)
+    source_image_size_x: bpy.props.FloatProperty(name="Image source x size", default=0.1, min=-10, max=10,
+                                                 precision=PRECISION, unit="LENGTH", update=updateZbufferImage)
     source_image_offset: bpy.props.FloatVectorProperty(name='Image offset', default=(0, 0, 0), unit='LENGTH',
-                                                        precision=PRECISION, subtype="XYZ", update=updateZbufferImage)
+                                                       precision=PRECISION, subtype="XYZ", update=updateZbufferImage)
     source_image_crop: bpy.props.BoolProperty(name="Crop source image",
-                                               description="Crop source image - the position of the sub-rectangle is relative to the whole image, so it can be used for e.g. finishing just a part of an image",
-                                               default=False, update=updateZbufferImage)
+                                              description="Crop source image - the position of the sub-rectangle is relative to the whole image, so it can be used for e.g. finishing just a part of an image",
+                                              default=False, update=updateZbufferImage)
     source_image_crop_start_x: bpy.props.FloatProperty(name='crop start x', default=0, min=0, max=100,
-                                                        precision=PRECISION, subtype='PERCENTAGE',
-                                                        update=updateZbufferImage)
+                                                       precision=PRECISION, subtype='PERCENTAGE',
+                                                       update=updateZbufferImage)
     source_image_crop_start_y: bpy.props.FloatProperty(name='crop start y', default=0, min=0, max=100,
-                                                        precision=PRECISION, subtype='PERCENTAGE',
-                                                        update=updateZbufferImage)
+                                                       precision=PRECISION, subtype='PERCENTAGE',
+                                                       update=updateZbufferImage)
     source_image_crop_end_x: bpy.props.FloatProperty(name='crop end x', default=100, min=0, max=100,
-                                                      precision=PRECISION, subtype='PERCENTAGE',
-                                                      update=updateZbufferImage)
+                                                     precision=PRECISION, subtype='PERCENTAGE',
+                                                     update=updateZbufferImage)
     source_image_crop_end_y: bpy.props.FloatProperty(name='crop end y', default=100, min=0, max=100,
-                                                      precision=PRECISION, subtype='PERCENTAGE',
-                                                      update=updateZbufferImage)
+                                                     precision=PRECISION, subtype='PERCENTAGE',
+                                                     update=updateZbufferImage)
 
     #########################################################
     # Toolpath and area related
     #####################################################
 
     protect_vertical: bpy.props.BoolProperty(name="Protect vertical",
-                                              description="The path goes only vertically next to steep areas",
-                                              default=True)
+                                             description="The path goes only vertically next to steep areas",
+                                             default=True)
     protect_vertical_limit: bpy.props.FloatProperty(name="Verticality limit",
-                                                     description="What angle is allready considered vertical",
-                                                     default=math.pi / 45, min=0, max=math.pi * 0.5, precision=0,
-                                                     subtype="ANGLE", unit="ROTATION", update=updateRest)
+                                                    description="What angle is allready considered vertical",
+                                                    default=math.pi / 45, min=0, max=math.pi * 0.5, precision=0,
+                                                    subtype="ANGLE", unit="ROTATION", update=updateRest)
 
     ambient_behaviour: EnumProperty(name='Ambient', items=(('ALL', 'All', 'a'), ('AROUND', 'Around', 'a')),
-                                     description='handling ambient surfaces', default='ALL', update=updateZbufferImage)
+                                    description='handling ambient surfaces', default='ALL', update=updateZbufferImage)
 
     ambient_radius: FloatProperty(name="Ambient radius",
-                                   description="Radius around the part which will be milled if ambient is set to Around",
-                                   min=0.0, max=100.0, default=0.01, precision=PRECISION, unit="LENGTH",
-                                   update=updateRest)
+                                  description="Radius around the part which will be milled if ambient is set to Around",
+                                  min=0.0, max=100.0, default=0.01, precision=PRECISION, unit="LENGTH",
+                                  update=updateRest)
     # ambient_cutter = EnumProperty(name='Borders',items=(('EXTRAFORCUTTER', 'Extra for cutter', "Extra space for cutter is cut around the segment"),('ONBORDER', "Cutter on edge", "Cutter goes exactly on edge of ambient with it's middle") ,('INSIDE', "Inside segment", 'Cutter stays within segment')	 ),description='handling of ambient and cutter size',default='INSIDE')
     use_limit_curve: bpy.props.BoolProperty(name="Use limit curve", description="A curve limits the operation area",
-                                             default=False, update=updateRest)
+                                            default=False, update=updateRest)
     ambient_cutter_restrict: bpy.props.BoolProperty(name="Cutter stays in ambient limits",
                                                     description="Cutter doesn't get out from ambient limits otherwise goes on the border exactly",
                                                     default=True,
@@ -773,11 +805,13 @@ class camOperation(bpy.types.PropertyGroup):
                                              items=(('CW', 'Clock wise', 'a'), ('CCW', 'Counter clock wise', 'a')),
                                              description='Spindle rotation direction', default='CW', update=updateRest)
     free_movement_height: bpy.props.FloatProperty(name="Free movement height", default=0.01, min=0.0000, max=32,
-                                                   precision=PRECISION, unit="LENGTH", update=updateRest)
+                                                  precision=PRECISION, unit="LENGTH", update=updateRest)
     useG64: bpy.props.BoolProperty(name="G64 trajectory",
-                                               description='Use only if your machie supports G64 code.  LinuxCNC and Mach3 do', default=False, update=updateRest)
-    G64: bpy.props.FloatProperty(name="Path Control Mode with Optional Tolerance", default=0.0001, min=0.0000, max=0.005,
-                                                   precision=PRECISION, unit="LENGTH", update=updateRest)                                                   
+                                   description='Use only if your machie supports G64 code.  LinuxCNC and Mach3 do',
+                                   default=False, update=updateRest)
+    G64: bpy.props.FloatProperty(name="Path Control Mode with Optional Tolerance", default=0.0001, min=0.0000,
+                                 max=0.005,
+                                 precision=PRECISION, unit="LENGTH", update=updateRest)
     movement_insideout: EnumProperty(name='Direction',
                                      items=(('INSIDEOUT', 'Inside out', 'a'), ('OUTSIDEIN', 'Outside in', 'a')),
                                      description='approach to the piece', default='INSIDEOUT', update=updateRest)
@@ -832,11 +866,15 @@ class camOperation(bpy.types.PropertyGroup):
     crazy_threshold4: bpy.props.FloatProperty(name="test angle step", default=0.05, min=0.00000001, max=100,
                                               precision=PRECISION, update=updateRest)
     # Add pocket operation to medial axis
-    add_pocket_for_medial: bpy.props.BoolProperty(name="Add pocket operation", description="clean unremoved material after medial axis", default=True,
-                                        update=updateRest)
+    add_pocket_for_medial: bpy.props.BoolProperty(name="Add pocket operation",
+                                                  description="clean unremoved material after medial axis",
+                                                  default=True,
+                                                  update=updateRest)
 
-    add_mesh_for_medial: bpy.props.BoolProperty(name="Add Medial mesh", description="Medial operation returns mesh for editing and further processing", default=False,
-                                        update=updateRest)
+    add_mesh_for_medial: bpy.props.BoolProperty(name="Add Medial mesh",
+                                                description="Medial operation returns mesh for editing and further processing",
+                                                default=False,
+                                                update=updateRest)
     ####
     medial_axis_threshold: bpy.props.FloatProperty(name="Long vector threshold", default=0.001, min=0.00000001,
                                                    max=100, precision=PRECISION, unit="LENGTH", update=updateRest)
@@ -854,8 +892,9 @@ class camOperation(bpy.types.PropertyGroup):
     bridges_height: bpy.props.FloatProperty(name='height of bridges',
                                             description="Height from the bottom of the cutting operation",
                                             default=0.0005, unit='LENGTH', precision=PRECISION, update=updateBridges)
-    bridges_collection_name: bpy.props.StringProperty(name='Bridges Collection', description='Collection of curves used as bridges',
-                                                 update=operationValid)
+    bridges_collection_name: bpy.props.StringProperty(name='Bridges Collection',
+                                                      description='Collection of curves used as bridges',
+                                                      update=operationValid)
     use_bridge_modifiers: BoolProperty(name="use bridge modifiers",
                                        description="include bridge curve modifiers using render level when calculating operation, does not effect original bridge data",
                                        default=True, update=updateBridges)
@@ -886,11 +925,15 @@ class camOperation(bpy.types.PropertyGroup):
                                                           description="How much to add to model size on all sides",
                                                           default=0.0, unit='LENGTH', precision=PRECISION,
                                                           update=updateMaterial)
-    material_center_x: bpy.props.BoolProperty(name="Center with X axis", description="Position model centered on X", default=False, update=updateMaterial)                                                          
-    material_center_y: bpy.props.BoolProperty(name="Center with Y axis", description="Position model centered on Y", default=False, update=updateMaterial)   
+    material_center_x: bpy.props.BoolProperty(name="Center with X axis", description="Position model centered on X",
+                                              default=False, update=updateMaterial)
+    material_center_y: bpy.props.BoolProperty(name="Center with Y axis", description="Position model centered on Y",
+                                              default=False, update=updateMaterial)
 
-                                                       
-    material_Z: bpy.props.EnumProperty(name="Z placement", items=(('ABOVE', 'Above', 'Place objec above 0'),('BELOW', 'Below', 'Place object below 0'),('CENTERED','Centered','Place object centered on 0')),description="Position below Zero", default='BELOW', update=updateMaterial)                                                          
+    material_Z: bpy.props.EnumProperty(name="Z placement", items=(
+        ('ABOVE', 'Above', 'Place objec above 0'), ('BELOW', 'Below', 'Place object below 0'),
+        ('CENTERED', 'Centered', 'Place object centered on 0')), description="Position below Zero", default='BELOW',
+                                       update=updateMaterial)
 
     material_origin: bpy.props.FloatVectorProperty(name='Material origin', default=(0, 0, 0), unit='LENGTH',
                                                    precision=PRECISION, subtype="XYZ", update=updateMaterial)
@@ -950,7 +993,7 @@ class camOperation(bpy.types.PropertyGroup):
     update_bullet_collision_tag: bpy.props.BoolProperty(name="mark bullet collisionworld for update",
                                                         description="mark for update", default=True)
 
-    valid: bpy.props.BoolProperty(name="Valid", description="True if operation is ok for calculation", default=True);
+    valid: bpy.props.BoolProperty(name="Valid", description="True if operation is ok for calculation", default=True)
     changedata: bpy.props.StringProperty(name='changedata', description='change data for checking if stuff changed.')
 
     # process related data
@@ -971,7 +1014,7 @@ class camChain(bpy.types.PropertyGroup):  # chain is just a set of operations wh
                                             default=-1)
     name: bpy.props.StringProperty(name="Chain Name", default="Chain")
     filename: bpy.props.StringProperty(name="File name", default="Chain")  # filename of
-    valid: bpy.props.BoolProperty(name="Valid", description="True if whole chain is ok for calculation", default=True);
+    valid: bpy.props.BoolProperty(name="Valid", description="True if whole chain is ok for calculation", default=True)
     computing: bpy.props.BoolProperty(name="Computing right now", description="", default=False)
     operations: bpy.props.CollectionProperty(type=opReference)  # this is to hold just operation names.
 
@@ -1069,8 +1112,9 @@ class AddPresetCamOperation(bl_operators.presets.AddPresetBase, Operator):
                      'o.cutter_id', 'o.path_object_name', 'o.pencil_threshold', 'o.geometry_source',
                      'o.optimize_threshold', 'o.protect_vertical', 'o.plunge_feedrate', 'o.minz', 'o.warnings',
                      'o.object_name', 'o.optimize', 'o.parallel_angle', 'o.cutter_length',
-                     'o.output_header', 'o.gcode_header', 'o.output_trailer', 'o.gcode_trailer', 'o.use_modifiers','o.minz_from_material','o.useG64',
-                     'o.G64','o.enable_A','o.enable_B','o.A_along_x','o.rotation_A','o.rotation_B','o.straight']
+                     'o.output_header', 'o.gcode_header', 'o.output_trailer', 'o.gcode_trailer', 'o.use_modifiers',
+                     'o.minz_from_material', 'o.useG64',
+                     'o.G64', 'o.enable_A', 'o.enable_B', 'o.A_along_x', 'o.rotation_A', 'o.rotation_B', 'o.straight']
 
     preset_subdir = "cam_operations"
 
@@ -1143,6 +1187,7 @@ def get_panels():  # convenience function for bot register and unregister functi
         ui.CAM_PACK_Panel,
         ui.CAM_SLICE_Panel,
         ui.VIEW3D_PT_tools_curvetools,
+        ui.VIEW3D_PT_tools_create,
         ui.CustomPanel,
 
         ops.PathsBackground,
@@ -1183,11 +1228,17 @@ def get_panels():  # convenience function for bot register and unregister functi
         curvecamtools.CamCurveOvercutsB,
         curvecamtools.CamCurveRemoveDoubles,
         curvecamtools.CamMeshGetPockets,
+
         curvecamequation.CamSineCurve,
         curvecamequation.CamLissajousCurve,
-        curvecamequation.CamHypotrochoidCurve,             
-        curvecamequation.CamCustomCurve,                 
-        
+        curvecamequation.CamHypotrochoidCurve,
+        curvecamequation.CamCustomCurve,
+
+        curvecamcreate.CamCurveHatch,
+        curvecamcreate.CamCurvePlate,
+        curvecamcreate.CamCurveDrawer,
+        curvecamcreate.CamCurveMortise,
+
         CAM_CUTTER_MT_presets,
         CAM_OPERATION_MT_presets,
         CAM_MACHINE_MT_presets,
@@ -1317,7 +1368,6 @@ def compatible_panels():
 
 classes = [
     ui.CAM_UL_operations,
-    # ui.CAM_UL_orientations,
     ui.CAM_UL_chains,
     camOperation,
     opReference,
@@ -1341,6 +1391,7 @@ classes = [
     ui.CAM_PACK_Panel,
     ui.CAM_SLICE_Panel,
     ui.VIEW3D_PT_tools_curvetools,
+    ui.VIEW3D_PT_tools_create,
     ui.CustomPanel,
     ui.WM_OT_gcode_import,
 
@@ -1382,11 +1433,17 @@ classes = [
     curvecamtools.CamCurveOvercutsB,
     curvecamtools.CamCurveRemoveDoubles,
     curvecamtools.CamMeshGetPockets,
+
     curvecamequation.CamSineCurve,
-    curvecamequation.CamLissajousCurve,    
-    curvecamequation.CamHypotrochoidCurve,  
-    curvecamequation.CamCustomCurve,  
-    
+    curvecamequation.CamLissajousCurve,
+    curvecamequation.CamHypotrochoidCurve,
+    curvecamequation.CamCustomCurve,
+
+    curvecamcreate.CamCurveHatch,
+    curvecamcreate.CamCurvePlate,
+    curvecamcreate.CamCurveDrawer,
+    curvecamcreate.CamCurveMortise,
+
     CAM_CUTTER_MT_presets,
     CAM_OPERATION_MT_presets,
     CAM_MACHINE_MT_presets,
@@ -1438,5 +1495,3 @@ def unregister():
 
     del s.cam_active_operation
     del s.cam_machine
-
-
