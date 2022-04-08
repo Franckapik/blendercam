@@ -172,13 +172,8 @@ class CAM_MACHINE_Panel(CAMButtonsPanel, bpy.types.Panel):
             row.menu("CAM_MACHINE_MT_presets",
                      text=bpy.types.CAM_MACHINE_MT_presets.bl_label)
             row.operator("render.cam_preset_machine_add", text="", icon='ADD')
-<<<<<<< HEAD
             row.operator("render.cam_preset_machine_add", text="",
                          icon='REMOVE').remove_active = True
-            # layout.prop(ao,'name')
-=======
-            row.operator("render.cam_preset_machine_add", text="", icon='REMOVE').remove_active = True
->>>>>>> viewing
             layout.prop(ao, 'post_processor')
             layout.prop(ao, 'eval_splitting')
             if ao.eval_splitting:
@@ -330,19 +325,12 @@ class CAM_CHAINS_Panel(CAMButtonsPanel, bpy.types.Panel):
                 if not chain.computing:
                     if chain.valid:
                         pass
-<<<<<<< HEAD
                         layout.operator(
                             "object.calculate_cam_paths_chain", text="Calculate chain paths & Export Gcode")
                         layout.operator(
                             "object.cam_export_paths_chain", text="Export chain gcode")
-                        # layout.operator("object.calculate_cam_paths_background", text="Calculate path in background")
                         layout.operator("object.cam_simulate_chain",
                                         text="Simulate this chain")
-=======
-                        layout.operator("object.calculate_cam_paths_chain", text="Calculate chain paths & Export Gcode")
-                        layout.operator("object.cam_export_paths_chain", text="Export chain gcode")
-                        layout.operator("object.cam_simulate_chain", text="Simulate this chain")
->>>>>>> viewing
                     else:
                         layout.label(text="chain invalid, can't compute")
                 else:
@@ -371,16 +359,10 @@ class CAM_OPERATIONS_Panel(CAMButtonsPanel, bpy.types.Panel):
         col.operator("scene.cam_operation_copy", icon='COPYDOWN', text="")
         col.operator("scene.cam_operation_remove", icon='REMOVE', text="")
         col.separator()
-<<<<<<< HEAD
         col.operator("scene.cam_operation_move",
                      icon='TRIA_UP', text="").direction = 'UP'
         col.operator("scene.cam_operation_move",
                      icon='TRIA_DOWN', text="").direction = 'DOWN'
-        # row = layout.row()
-=======
-        col.operator("scene.cam_operation_move", icon='TRIA_UP', text="").direction = 'UP'
-        col.operator("scene.cam_operation_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
->>>>>>> viewing
 
         if len(scene.cam_operations) > 0:
             use_experimental = bpy.context.preferences.addons['cam'].preferences.experimental
@@ -397,13 +379,8 @@ class CAM_OPERATIONS_Panel(CAMButtonsPanel, bpy.types.Panel):
             if ao:
                 if not ao.computing:
                     if ao.valid:
-<<<<<<< HEAD
                         layout.operator("object.calculate_cam_path",
                                         text="Calculate path & export Gcode")
-                        # layout.operator("object.calculate_cam_paths_background", text="Calculate path in background")
-=======
-                        layout.operator("object.calculate_cam_path", text="Calculate path & export Gcode")
->>>>>>> viewing
                         if ao.name is not None:
                             name = "cam_path_{}".format(ao.name)
                             if scene.objects.get(name) is not None:
@@ -417,13 +394,8 @@ class CAM_OPERATIONS_Panel(CAMButtonsPanel, bpy.types.Panel):
                 else:
                     row = layout.row(align=True)
                     row.label(text='computing')
-<<<<<<< HEAD
                     row.operator(
                         'object.kill_calculate_cam_paths_background', text="", icon='CANCEL')
-                # layout.prop(ao,'computing')
-=======
-                    row.operator('object.kill_calculate_cam_paths_background', text="", icon='CANCEL')
->>>>>>> viewing
 
                 sub = layout.column()
                 sub.active = not ao.computing
@@ -440,26 +412,6 @@ class CAM_OPERATIONS_Panel(CAMButtonsPanel, bpy.types.Panel):
                             layout.prop(ao, 'rotation_A')
                         if ao.enable_B:
                             layout.prop(ao, 'rotation_B')
-<<<<<<< HEAD
-                        if ao.enable_B or ao.enable_A:
-                            if ao.old_rotation_A != ao.rotation_A or ao.old_rotation_B != ao.rotation_B:
-                                ao.old_rotation_A = ao.rotation_A
-                                ao.old_rotation_B = ao.rotation_B
-                                ob = bpy.data.objects[ao.object_name]
-                                ob.select_set(True)
-                                bpy.context.view_layer.objects.active = ob
-                                if ao.A_along_x:  # A parallel with X
-                                    if ao.enable_A:
-                                        bpy.context.active_object.rotation_euler.x = ao.rotation_A
-                                    if ao.enable_B:
-                                        bpy.context.active_object.rotation_euler.y = ao.rotation_B
-                                else:  # A parallel with Y
-                                    if ao.enable_A:
-                                        bpy.context.active_object.rotation_euler.y = ao.rotation_A
-                                    if ao.enable_B:
-                                        bpy.context.active_object.rotation_euler.x = ao.rotation_B
-=======
->>>>>>> viewing
 
                     elif ao.geometry_source == 'COLLECTION':
                         layout.prop_search(
@@ -514,10 +466,10 @@ class CAM_INFO_Panel(CAMButtonsPanel, bpy.types.Panel):
 
     def draw_opencamlib_version(self):
         if "ocl" in sys.modules:
-            #TODO: Display Opencamlib's version
-            self.layout.label(text = "Opencamlib installed")
+            # TODO: Display Opencamlib's version
+            self.layout.label(text="Opencamlib installed")
         else:
-            self.layout.label(text = "Opencamlib is not installed")
+            self.layout.label(text="Opencamlib is not installed")
 
     def draw_active_op_warnings(self):
         active_op = self.scene.cam_operations[self.scene.cam_active_operation]
@@ -527,53 +479,41 @@ class CAM_INFO_Panel(CAMButtonsPanel, bpy.types.Panel):
 
     def draw_active_op_data(self):
         active_op = self.scene.cam_operations[self.scene.cam_active_operation]
-        if not active_op.valid: return
-        if not int(active_op.duration*60) > 0: return
+        if not active_op.valid:
+            return
+        if not int(active_op.duration*60) > 0:
+            return
 
-        active_op_time_text = "Operation Time: %d s " % int(active_op.duration*60)
+        active_op_time_text = "Operation Time: %d s " % int(
+            active_op.duration*60)
         if active_op.duration > 60:
-            active_op_time_text += " (%d h %d min)" % (int(active_op.duration / 60), round(active_op.duration % 60))
+            active_op_time_text += " (%d h %d min)" % (
+                int(active_op.duration / 60), round(active_op.duration % 60))
         elif active_op.duration > 1:
             active_op_time_text += " (%d min)" % round(active_op.duration % 60)
 
-        self.layout.label(text = active_op_time_text)
+        self.layout.label(text=active_op_time_text)
 
-        self.layout.label(text="Chipload: %s/tooth" % strInUnits(active_op.chipload, 4))
-
+        self.layout.label(text="Chipload: %s/tooth" %
+                          strInUnits(active_op.chipload, 4))
 
     def draw_active_op_money_cost(self):
         active_op = self.scene.cam_operations[self.scene.cam_active_operation]
-        if not active_op.valid: return
-        if not int(active_op.duration*60) > 0: return
+        if not active_op.valid:
+            return
+        if not int(active_op.duration*60) > 0:
+            return
 
         self.layout.prop(self.scene.cam_machine, 'hourly_rate')
-        if float(self.scene.cam_machine.hourly_rate) < 0.01: return
+        if float(self.scene.cam_machine.hourly_rate) < 0.01:
+            return
 
         cost_per_second = self.scene.cam_machine.hourly_rate / 3600
-        active_op_cost = 'Operation cost: $' + str(round((active_op.duration * 60 * cost_per_second), 2))
-        self.layout.label(text='Cost per second:' + str(round(cost_per_second, 3)))
+        active_op_cost = 'Operation cost: $' + \
+            str(round((active_op.duration * 60 * cost_per_second), 2))
+        self.layout.label(text='Cost per second:' +
+                          str(round(cost_per_second, 3)))
         self.layout.label(text=active_op_cost)
-
-
-
-<<<<<<< HEAD
-        if len(scene.cam_operations) == 0:
-            layout.label(text='Add operation first')
-        if len(scene.cam_operations) > 0:
-            ao = scene.cam_operations[scene.cam_active_operation]
-            if ao.warnings != '':
-                lines = ao.warnings.split('\n')
-                for l in lines:
-                    layout.label(text=l, icon='COLOR_RED')
-            if ao.valid:
-                if ao.duration > 0:
-                    layout.label(text='operation time: ' + str(int(ao.duration / 60)) +
-                                      ' hour, ' + str(int(ao.duration) % 60) + ' min, ' +
-                                      str(int(ao.duration * 60) % 60) + ' sec.')
-                layout.label(text='chipload: ' +
-                             strInUnits(ao.chipload, 4) + ' / tooth')
-=======
->>>>>>> viewing
 
 
 class CAM_OPERATION_PROPERTIES_Panel(CAMButtonsPanel, bpy.types.Panel):
@@ -690,10 +630,6 @@ class CAM_OPERATION_PROPERTIES_Panel(CAMButtonsPanel, bpy.types.Panel):
                     layout.prop(ao, 'enable_B')
                     if ao.enable_B:
                         layout.prop(ao, 'rotation_B')
-<<<<<<< HEAD
-
-=======
->>>>>>> viewing
                 else:
                     layout.prop(ao, 'dist_between_paths')
                     EngagementDisplay(ao, layout)
@@ -722,15 +658,8 @@ class CAM_OPERATION_PROPERTIES_Panel(CAMButtonsPanel, bpy.types.Panel):
                         layout.prop_search(
                             ao, "bridges_collection_name", bpy.data, "collections")
                         layout.prop(ao, 'use_bridge_modifiers')
-<<<<<<< HEAD
-                    # if ao.bridges_placement == 'AUTO':
-                    #	layout.prop(ao,'bridges_per_curve')
-                    #	layout.prop(ao,'bridges_max_distance')
                     layout.operator("scene.cam_bridges_add",
                                     text="Autogenerate bridges")
-=======
-                    layout.operator("scene.cam_bridges_add", text="Autogenerate bridges")
->>>>>>> viewing
 
             layout.prop(ao, 'skin')
 
@@ -925,13 +854,8 @@ class CAM_AREA_Panel(CAMButtonsPanel, bpy.types.Panel):
                             sy = int((ao.source_image_size_x /
                                      i.size[0]) * i.size[1] * 1000000) / 1000
 
-<<<<<<< HEAD
                             layout.label(
                                 text='image size on y axis: ' + strInUnits(sy, 8))
-                            # label(text='dir(layout))
-=======
-                            layout.label(text='image size on y axis: ' + strInUnits(sy, 8))
->>>>>>> viewing
                             layout.separator()
                     layout.prop(ao, 'source_image_offset')
                     col = layout.column(align=True)
@@ -1028,14 +952,8 @@ class VIEW3D_PT_tools_curvetools(bpy.types.Panel):
     bl_context = "objectmode"
     bl_label = "Curve CAM Tools"
 
-<<<<<<< HEAD
-    # bl_category = "Blender CAM"
-    # bl_options = {'DEFAULT_CLOSED'}
-
     def draw(self, context):
         layout = self.layout
-        # col = layout.column(align=True)
-        # lt = context.window_manager.looptools
         layout.operator("object.curve_boolean", icon='MOD_BOOLEAN')
         layout.operator("object.convex_hull", icon='POINTCLOUD_DATA')
         layout.operator("object.curve_intarsion", icon='SMOOTHCURVE')
@@ -1045,20 +963,6 @@ class VIEW3D_PT_tools_curvetools(bpy.types.Panel):
         layout.operator("object.silhouete_offset", icon='FULLSCREEN_ENTER')
         layout.operator("object.curve_remove_doubles", icon='TRASH')
         layout.operator("object.mesh_get_pockets", icon='META_PLANE')
-
-=======
-    def draw(self, context):
-        layout = self.layout
-        layout.operator("object.curve_boolean")
-        layout.operator("object.convex_hull")
-        layout.operator("object.curve_intarsion")
-        layout.operator("object.curve_overcuts")
-        layout.operator("object.curve_overcuts_b")
-        layout.operator("object.silhouete")
-        layout.operator("object.silhouete_offset")
-        layout.operator("object.curve_remove_doubles")
-        layout.operator("object.mesh_get_pockets")
->>>>>>> viewing
 
 
 class VIEW3D_PT_tools_create(bpy.types.Panel):
