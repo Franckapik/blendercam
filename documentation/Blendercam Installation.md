@@ -20,26 +20,26 @@ You can watch the video using the documentation below.
 * [1. Obtaining Blender](#obtaining-blender)
 * [2. Get Blendercam source code](#get-blendercam-source-code)
 * [3. Setup Blender scripts alternate path](#setup-blender-scripts-alternate-file-path)
-* [4. Enable Blendercam add-on](#enable-blendercam-add-on)
+* [4. Enable Blendercam and required add-ons](#enable-blendercam-add-on)
 * [5. (Optional) Install OpenCAMLib](#optional-install-opencamlib)
 * [6. Updating Blendercam](#updating-blendercam)
 
 
 ## Obtaining Blender
-Blendercam is an addon of Blender. It works now with Blender version 2.83 and 2.92.
-You can download Blender portable version for linux64 2.83 or 2.92 and install dependencies from command lines.
+Blendercam is an addon of Blender. It works now with Blender version 2.83, 2.92, 2.93 and 3.0.
+You can download Blender portable version for linux64 2.83 or 2.93 or 3.0 and install dependencies from command lines.
 
 ```
 $ cd ~/
 $ mkdir Apps
 $ cd Apps
-$ wget https://ftp.nluug.nl/pub/graphics/blender/release/Blender2.92/blender-2.92.0-linux64.tar.xz
-$ tar xf blender-2.92.0-linux64.tar.xz
-$ cd blender-2.92.0-linux64/2.92/python/bin
-$ ./python3.7m -m ensurepip
+$ wget https://ftp.nluug.nl/pub/graphics/blender/release/Blender3.0/blender-3.0.0-linux-x64.tar.xz
+$ tar xf blender-3.0.0-linux64.tar.xz
+$ cd blender-3.0.0-linux64/3.0/python/bin
+$ ./python3.9 -m ensurepip
 $ ./pip3 install shapely
-$ ./pip3 install vtk
 $ ./pip3 install Equation
+$ sudo apt-get install libgeos-c1v5
 ```
 
 ## Dependencies
@@ -48,8 +48,8 @@ $ ./pip3 install Equation
 | ------------- |:-------------:|
 | shapely  | >= 1.5 |
 | numpy    | ...      |
-| vtk      | ...      |
 | Equation | ...      |
+| libgeos_c | libgeos-c1v5|
 
 
 
@@ -58,11 +58,11 @@ $ ./pip3 install Equation
 
 **Note:** if you are using a Blender with a bundled Python then shapely and numpy must be installed in the `site-packages` directory of the bundled python. For Blender 2.8 only Shapely is needed. To install it, open terminal, get to Blender directory and use PIP:
 
-`cd 2.80/python/bin/`
+`cd 3.0/python/bin/`
 
-`./python3.7m -m ensurepip`
+`./python3.9 -m ensurepip`
 
-`./python3.7m -m pip install shapely`
+`./python3.9 -m pip install shapely`
 
 
 ## Get Blendercam source code
@@ -89,8 +89,8 @@ The second step is to tell blender to also search an alternate path for add-ons.
  4. select **Save User Settings**
  5. restart Blender
 
-## Enable Blendercam add-on
-The third step is to enable the Blendercam add-on.
+## Enable Blendercam and required add-ons
+The next step is to enable the Blendercam add-on.
 
 ![Enable Addon](images/addonInstall3.png)
 
@@ -100,7 +100,9 @@ The third step is to enable the Blendercam add-on.
  4. enable the CAM addon by left clicking on the check box. (Note: the checkbox is on the left side in daily builds of Blender after 11 Jan 2016)  
    4a. the file path should match your Blendercam git path
  5. Optional: enable the experimental features
- 6. select **Save User Settings**
+ 6. enable additional bundled add-ons required by some Blendercam features:
+    - Add Curve: Extra Objects
+ 7. select **Save User Settings**
 
 Now when ever blender is started, the external blendercam add-on will be enabled.
 

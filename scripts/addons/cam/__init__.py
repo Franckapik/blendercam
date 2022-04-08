@@ -148,7 +148,8 @@ class machineSettings(bpy.types.PropertyGroup):
     # units = EnumProperty(name='Units', items = (('IMPERIAL', ''))
     # position definitions:
     use_position_definitions: bpy.props.BoolProperty(name="Use position definitions",
-                                                     description="Define own positions for op start, toolchange, ending position",
+                                                     description="Define own positions for op start, "
+                                                                 "toolchange, ending position",
                                                      default=False)
     starting_position: bpy.props.FloatVectorProperty(name='Start position', default=(0, 0, 0), unit='LENGTH',
                                                      precision=PRECISION, subtype="XYZ", update=updateMachine)
@@ -165,6 +166,7 @@ class machineSettings(bpy.types.PropertyGroup):
                                           precision=PRECISION, unit='LENGTH')
     feedrate_default: bpy.props.FloatProperty(name="Feedrate default /min", default=1.5, min=0.00001, max=320000,
                                               precision=PRECISION, unit='LENGTH')
+    hourly_rate: bpy.props.FloatProperty(name="Price per hour", default=100, min=0.005, precision=2)
 
     # UNSUPPORTED:
 
@@ -175,7 +177,8 @@ class machineSettings(bpy.types.PropertyGroup):
     spindle_default: bpy.props.FloatProperty(name="Spindle speed default RPM", default=15000, min=0.00001, max=320000,
                                              precision=1)
     spindle_start_time: bpy.props.FloatProperty(name="Spindle start delay seconds",
-                                                description='Wait for the spindle to start spinning before starting the feeds , in seconds',
+                                                description='Wait for the spindle to start spinning before starting '
+                                                            'the feeds , in seconds',
                                                 default=0, min=0.0000, max=320000, precision=1)
 
     axis4: bpy.props.BoolProperty(name="#4th axis", description="Machine has 4th axis", default=0)
@@ -224,7 +227,6 @@ class machineSettings(bpy.types.PropertyGroup):
 
 class PackObjectsSettings(bpy.types.PropertyGroup):
     """stores all data for machines"""
-    # name = bpy.props.StringProperty(name="Machine Name", default="Machine")
     sheet_fill_direction: EnumProperty(name='Fill direction',
                                        items=(('X', 'X', 'Fills sheet in X axis direction'),
                                               ('Y', 'Y', 'Fills sheet in Y axis direction')),
@@ -242,15 +244,14 @@ class PackObjectsSettings(bpy.types.PropertyGroup):
                              min=0.001, max=0.02, default=0.005, precision=PRECISION, unit="LENGTH")
     rotate: bpy.props.BoolProperty(name="enable rotation", description="Enable rotation of elements", default=True)
     rotate_angle: FloatProperty(name="Placement Angle rotation step",
-                                description="bigger rotation angle,faster placemant", default=0.19635 * 4, min=0.19635,
+                                description="bigger rotation angle,faster placemant", default=0.19635 * 4,
+                                min=math.pi/180,
                                 max=math.pi, precision=5,
                                 subtype="ANGLE", unit="ROTATION")
 
 
 class SliceObjectsSettings(bpy.types.PropertyGroup):
     """stores all data for machines"""
-    # name = bpy.props.StringProperty(name="Machine Name", default="Machine")
-
     slice_distance: FloatProperty(name="Slicing distance",
                                   description="slices distance in z, should be most often thickness of plywood sheet.",
                                   min=0.001, max=10, default=0.005, precision=PRECISION, unit="LENGTH")
@@ -279,11 +280,11 @@ def operationValid(self, context):
     o.warnings = ""
     o = bpy.context.scene.cam_operations[bpy.context.scene.cam_active_operation]
     if o.geometry_source == 'OBJECT':
-        if not o.object_name in bpy.data.objects:
+        if o.object_name not in bpy.data.objects:
             o.valid = False
             o.warnings = invalidmsg
     if o.geometry_source == 'COLLECTION':
-        if not o.collection_name in bpy.data.collections:
+        if o.collection_name not in bpy.data.collections:
             o.valid = False
             o.warnings = invalidmsg
         elif len(bpy.data.collections[o.collection_name].objects) == 0:
@@ -291,7 +292,7 @@ def operationValid(self, context):
             o.warnings = invalidmsg
 
     if o.geometry_source == 'IMAGE':
-        if not o.source_image_name in bpy.data.images:
+        if o.source_image_name not in bpy.data.images:
             o.valid = False
             o.warnings = invalidmsg
 
@@ -313,15 +314,19 @@ def updateChipload(self, context):
     """this is very simple computation of chip size, could be very much improved"""
     print('update chipload ')
     o = self
-    # self.changed=True
     # Old chipload
     o.chipload = (o.feedrate / (o.spindle_rpm * o.cutter_flutes))
     # New chipload with chip thining compensation.
-    # I have tried to combine these 2 formulas to compinsate for the phenomenon of chip thinning when cutting at less than 50% cutter engagement with cylindrical end mills.
-    # formula 1 Nominal Chipload is " feedrate mm/minute = spindle rpm x chipload x cutter diameter mm x cutter_flutes "
-    # formula 2 (.5*(cutter diameter mm devided by dist_between_paths)) devided by square root of ((cutter diameter mm devided by dist_between_paths)-1) x Nominal Chipload
-    # Nominal Chipload = what you find in end mill data sheats recomended chip load at %50 cutter engagment. I have no programming or math back ground.
-    # I am sure there is a better way to do this. I dont get consistent result and I am not sure if there is something wrong with the units going into the formula, my math or my lack of underestanding of python or programming in genereal. Hopefuly some one can have a look at this and with any luck we will be one tiny step on the way to a slightly better chipload calculating function.
+    # I have tried to combine these 2 formulas to compinsate for the phenomenon of chip thinning when cutting at less
+    # than 50% cutter engagement with cylindrical end mills. formula 1 Nominal Chipload is
+    # " feedrate mm/minute = spindle rpm x chipload x cutter diameter mm x cutter_flutes "
+    # formula 2 (.5*(cutter diameter mm devided by dist_between_paths)) divided by square root of
+    # ((cutter diameter mm devided by dist_between_paths)-1) x Nominal Chipload
+    # Nominal Chipload = what you find in end mill data sheats recomended chip load at %50 cutter engagment.
+    # I am sure there is a better way to do this. I dont get consistent result and
+    # I am not sure if there is something wrong with the units going into the formula, my math or my lack of
+    # underestanding of python or programming in genereal. Hopefuly some one can have a look at this and with any luck
+    # we will be one tiny step on the way to a slightly better chipload calculating function.
 
     # self.chipload = ((0.5*(o.cutter_diameter/o.dist_between_paths))/(math.sqrt((o.feedrate*1000)/(o.spindle_rpm*o.cutter_diameter*o.cutter_flutes)*(o.cutter_diameter/o.dist_between_paths)-1)))
     print(o.chipload)
@@ -345,8 +350,6 @@ def updateZbufferImage(self, context):
     utils.getOperationSources(self)
 
 
-# utils.checkMemoryLimit(self)
-
 def updateStrategy(o, context):
     """"""
     o.changed = True
@@ -361,10 +364,6 @@ def updateStrategy(o, context):
 
 def updateCutout(o, context):
     pass
-
-
-# if o.outlines_count>1:
-#	o.use_bridges=False
 
 
 def updateExact(o, context):
@@ -392,6 +391,24 @@ def updateOpencamlib(o, context):
 def updateBridges(o, context):
     print('update bridges ')
     o.changed = True
+
+
+def updateRotation(o, context):
+    if o.enable_B or o.enable_A:
+        print(o, o.rotation_A)
+        ob = bpy.data.objects[o.object_name]
+        ob.select_set(True)
+        bpy.context.view_layer.objects.active = ob
+        if o.A_along_x:  # A parallel with X
+            if o.enable_A:
+                bpy.context.active_object.rotation_euler.x = o.rotation_A
+            if o.enable_B:
+                bpy.context.active_object.rotation_euler.y = o.rotation_B
+        else:  # A parallel with Y
+            if o.enable_A:
+                bpy.context.active_object.rotation_euler.y = o.rotation_A
+            if o.enable_B:
+                bpy.context.active_object.rotation_euler.x = o.rotation_B
 
 
 # def updateRest(o, context):
@@ -526,7 +543,6 @@ class camOperation(bpy.types.PropertyGroup):
                                 default='INDEXED',
                                 update=updateStrategy)
 
-    # active_orientation = bpy.props.IntProperty(name="active orientation",description="active orientation", default=0,min=0, max=32000, update = updateRest)
     rotary_axis_1: EnumProperty(name='Rotary axis',
                                 items=(
                                     ('X', 'X', ''),
@@ -793,7 +809,7 @@ class camOperation(bpy.types.PropertyGroup):
                                           description="What angle is allready considered to plunge",
                                           default=math.pi / 6, min=0, max=math.pi * 0.5, precision=0, subtype="ANGLE",
                                           unit="ROTATION", update=updateRest)
-    spindle_rpm: FloatProperty(name="Spindle rpm", description="Spindle speed ", min=1000, max=60000, default=12000,
+    spindle_rpm: FloatProperty(name="Spindle rpm", description="Spindle speed ", min=0, max=60000, default=12000,
                                update=updateChipload)
     # movement parallel_step_back
     movement_type: EnumProperty(name='Movement type', items=(
@@ -931,8 +947,8 @@ class camOperation(bpy.types.PropertyGroup):
                                               default=False, update=updateMaterial)
 
     material_Z: bpy.props.EnumProperty(name="Z placement", items=(
-        ('ABOVE', 'Above', 'Place objec above 0'), ('BELOW', 'Below', 'Place object below 0'),
-        ('CENTERED', 'Centered', 'Place object centered on 0')), description="Position below Zero", default='BELOW',
+    ('ABOVE', 'Above', 'Place objec above 0'), ('BELOW', 'Below', 'Place object below 0'),
+    ('CENTERED', 'Centered', 'Place object centered on 0')), description="Position below Zero", default='BELOW',
                                        update=updateMaterial)
 
     material_origin: bpy.props.FloatVectorProperty(name='Material origin', default=(0, 0, 0), unit='LENGTH',
@@ -993,7 +1009,7 @@ class camOperation(bpy.types.PropertyGroup):
     update_bullet_collision_tag: bpy.props.BoolProperty(name="mark bullet collisionworld for update",
                                                         description="mark for update", default=True)
 
-    valid: bpy.props.BoolProperty(name="Valid", description="True if operation is ok for calculation", default=True)
+    valid: bpy.props.BoolProperty(name="Valid", description="True if operation is ok for calculation", default=True);
     changedata: bpy.props.StringProperty(name='changedata', description='change data for checking if stuff changed.')
 
     # process related data
@@ -1014,7 +1030,7 @@ class camChain(bpy.types.PropertyGroup):  # chain is just a set of operations wh
                                             default=-1)
     name: bpy.props.StringProperty(name="Chain Name", default="Chain")
     filename: bpy.props.StringProperty(name="File name", default="Chain")  # filename of
-    valid: bpy.props.BoolProperty(name="Valid", description="True if whole chain is ok for calculation", default=True)
+    valid: bpy.props.BoolProperty(name="Valid", description="True if whole chain is ok for calculation", default=True);
     computing: bpy.props.BoolProperty(name="Computing right now", description="", default=False)
     operations: bpy.props.CollectionProperty(type=opReference)  # this is to hold just operation names.
 
@@ -1078,23 +1094,7 @@ class AddPresetCamOperation(bl_operators.presets.AddPresetBase, Operator):
     bl_label = "Add Operation Preset"
     preset_menu = "CAM_OPERATION_MT_presets"
 
-    preset_defines = [
-        "o = bpy.context.scene.cam_operations[bpy.context.scene.cam_active_operation]"
-    ]
-
-    # d1=dir(bpy.types.machineSettings.bl_rna)
-    #
-    # d=[]
-    # for prop in d1:
-    #     if (prop[:2]!='__'
-    #         and prop!='bl_rna'
-    #         and prop!='translation_context'
-    #         and prop!='base'
-    #         and prop!='description'
-    #         and prop!='identifier'
-    #         and prop!='name'
-    #         and prop!='name_property'):
-    #             d.append(prop)
+    preset_defines = ["o = bpy.context.scene.cam_operations[bpy.context.scene.cam_active_operation]"]
 
     preset_values = ['o.use_layers', 'o.duration', 'o.chipload', 'o.material_from_model', 'o.stay_low', 'o.carve_depth',
                      'o.dist_along_paths', 'o.source_image_crop_end_x', 'o.source_image_crop_end_y', 'o.material_size',
@@ -1187,7 +1187,6 @@ def get_panels():  # convenience function for bot register and unregister functi
         ui.CAM_PACK_Panel,
         ui.CAM_SLICE_Panel,
         ui.VIEW3D_PT_tools_curvetools,
-        ui.VIEW3D_PT_tools_create,
         ui.CustomPanel,
 
         ops.PathsBackground,
@@ -1221,6 +1220,10 @@ def get_panels():  # convenience function for bot register and unregister functi
         # other tools
         curvecamtools.CamCurveBoolean,
         curvecamtools.CamCurveConvexHull,
+        curvecamtools.CamCurveHatch,
+        curvecamtools.CamCurvePlate,
+        curvecamtools.CamCurveDrawer,
+        curvecamtools.CamCurveMortise,
         curvecamtools.CamOffsetSilhouete,
         curvecamtools.CamObjectSilhouete,
         curvecamtools.CamCurveIntarsion,
@@ -1228,16 +1231,10 @@ def get_panels():  # convenience function for bot register and unregister functi
         curvecamtools.CamCurveOvercutsB,
         curvecamtools.CamCurveRemoveDoubles,
         curvecamtools.CamMeshGetPockets,
-
         curvecamequation.CamSineCurve,
         curvecamequation.CamLissajousCurve,
         curvecamequation.CamHypotrochoidCurve,
         curvecamequation.CamCustomCurve,
-
-        curvecamcreate.CamCurveHatch,
-        curvecamcreate.CamCurvePlate,
-        curvecamcreate.CamCurveDrawer,
-        curvecamcreate.CamCurveMortise,
 
         CAM_CUTTER_MT_presets,
         CAM_OPERATION_MT_presets,
@@ -1442,7 +1439,10 @@ classes = [
     curvecamcreate.CamCurveHatch,
     curvecamcreate.CamCurvePlate,
     curvecamcreate.CamCurveDrawer,
+    curvecamcreate.CamCurveGear,
     curvecamcreate.CamCurveMortise,
+    curvecamcreate.CamCurveInterlock,
+    curvecamcreate.CamCurvePuzzle,
 
     CAM_CUTTER_MT_presets,
     CAM_OPERATION_MT_presets,
@@ -1473,7 +1473,7 @@ def register():
                                                    update=updateOperation)
     s.cam_machine = bpy.props.PointerProperty(type=machineSettings)
 
-    bpy.types.Scene.import_gcode = bpy.props.PointerProperty(type=import_settings)
+    s.cam_import_gcode = bpy.props.PointerProperty(type=import_settings)
 
     s.cam_text = bpy.props.StringProperty()
     bpy.app.handlers.frame_change_pre.append(ops.timer_update)
@@ -1486,12 +1486,17 @@ def register():
 
 
 def unregister():
-    for p in get_panels():
+    for p in classes:
         bpy.utils.unregister_class(p)
     s = bpy.types.Scene
-    del s.cam_operations
+    
     # cam chains are defined hardly now.
     del s.cam_chains
-
+    del s.cam_active_chain
+    del s.cam_operations
     del s.cam_active_operation
     del s.cam_machine
+    del s.cam_import_gcode
+    del s.cam_text
+    del s.cam_pack
+    del s.cam_slice

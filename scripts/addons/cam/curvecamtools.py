@@ -106,9 +106,10 @@ class CamCurveIntarsion(bpy.types.Operator):
     def execute(self, context):
         selected = context.selected_objects  # save original selected items
 
-        simple.removeMultiple('intarsion_')
+        simple.remove_multiple('intarsion_')
 
-        for ob in selected: ob.select_set(True)  # select original curves
+        for ob in selected:
+            ob.select_set(True)  # select original curves
 
         #  Perimeter cut largen then intarsion pocket externally, optional
 
@@ -174,7 +175,7 @@ class CamCurveOvercuts(bpy.types.Operator):
         negative_overcuts = []
         positive_overcuts = []
         diameter = self.diameter * 1.001
-        for s in shapes:
+        for s in shapes.geoms:
             s = shapely.geometry.polygon.orient(s, 1)
             if s.boundary.type == 'LineString':
                 loops = [s.boundary]
@@ -183,7 +184,6 @@ class CamCurveOvercuts(bpy.types.Operator):
 
             for ci, c in enumerate(loops):
                 if ci > 0 or self.do_outer:
-                    # c=s.boundary
                     for i, co in enumerate(c.coords):
                         i1 = i - 1
                         if i1 == -1:
@@ -223,8 +223,6 @@ class CamCurveOvercuts(bpy.types.Operator):
                                 else:
                                     positive_overcuts.append(shape)
 
-                            print(a)
-
         negative_overcuts = shapely.ops.unary_union(negative_overcuts)
         positive_overcuts = shapely.ops.unary_union(positive_overcuts)
 
@@ -232,6 +230,7 @@ class CamCurveOvercuts(bpy.types.Operator):
         fs = fs.union(positive_overcuts)
         fs = fs.difference(negative_overcuts)
         utils.shapelyToCurve(o1.name + '_overcuts', fs, o1.location.z)
+
         return {'FINISHED'}
 
 
@@ -338,7 +337,7 @@ class CamCurveOvercutsB(bpy.types.Operator):
                 delta += cornerCnt
             return delta
 
-        for s in shapes:
+        for s in shapes.geoms:
             s = shapely.geometry.polygon.orient(s, 1)  # ensure the shape is counterclockwise
             loops = [s.boundary] if s.boundary.type == 'LineString' else s.boundary
             outercurve = self.do_outer or len(loops) == 1
@@ -458,8 +457,7 @@ class CamCurveOvercutsB(bpy.types.Operator):
         fs = shapely.ops.unary_union(shapes)
         fs = fs.union(positive_overcuts)
         fs = fs.difference(negative_overcuts)
-        #        utils.shapelyToCurve(o1.name + '_overcuts', positive_overcuts, o1.location.z)
-        #        utils.shapelyToCurve(o1.name + '_overcuts', negative_overcuts, o1.location.z)
+
         utils.shapelyToCurve(o1.name + '_overcuts', fs, o1.location.z)
         return {'FINISHED'}
 
@@ -503,7 +501,8 @@ class CamMeshGetPockets(bpy.types.Operator):
     bl_options = {'REGISTER', 'UNDO'}
 
     threshold: bpy.props.FloatProperty(name="horizontal threshold",
-                                       description="How horizontal the surface must be for a pocket: 1.0 perfectly flat, 0.0 is any orientation",
+                                       description="How horizontal the surface must be for a pocket: "
+                                                   "1.0 perfectly flat, 0.0 is any orientation",
                                        default=.99, min=0, max=1.0, precision=4)
     zlimit: bpy.props.FloatProperty(name="z limit",
                                     description="maximum z height considered for pocket operation, default is 0.0",
@@ -536,7 +535,7 @@ class CamMeshGetPockets(bpy.types.Operator):
                         face.select = True
                         z = (mw @ mesh.vertices[face.vertices[0]].co).z
                         if z < self.zlimit:
-                            if pockets.get(z) == None:
+                            if pockets.get(z) is None:
                                 pockets[z] = [i]
                             else:
                                 pockets[z].append(i)
@@ -606,7 +605,8 @@ class CamOffsetSilhouete(bpy.types.Operator):
     @classmethod
     def poll(cls, context):
         return context.active_object is not None and (
-                context.active_object.type == 'CURVE' or context.active_object.type == 'FONT' or context.active_object.type == 'MESH')
+                context.active_object.type == 'CURVE' or context.active_object.type == 'FONT' or
+                context.active_object.type == 'MESH')
 
     def execute(self, context):  # this is almost same as getobjectoutline, just without the need of operation data
         ob = context.active_object
@@ -622,8 +622,8 @@ class CamOffsetSilhouete(bpy.types.Operator):
             for v in obj.data.vertices:  # extract X,Y coordinates from the vertices data
                 coords.append((v.co.x, v.co.y))
 
-            simple.removeMultiple('temp_mesh')  # delete temporary mesh
-            simple.removeMultiple('dilation')  # delete old dilation objects
+            simple.remove_multiple('temp_mesh')  # delete temporary mesh
+            simple.remove_multiple('dilation')  # delete old dilation objects
 
             line = LineString(coords)  # convert coordinates to shapely LineString datastructure
             print("line length=", round(line.length * 1000), 'mm')
@@ -645,7 +645,8 @@ class CamObjectSilhouete(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        #        return context.active_object is not None and (context.active_object.type == 'CURVE' or context.active_object.type == 'FONT' or context.active_object.type == 'MESH')
+        #        return context.active_object is not None and (context.active_object.type == 'CURVE'
+        #        or context.active_object.type == 'FONT' or context.active_object.type == 'MESH')
         return context.active_object is not None and (context.active_object.type == 'MESH')
 
     def execute(self, context):  # this is almost same as getobjectoutline, just without the need of operation data
