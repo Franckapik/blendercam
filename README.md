@@ -29,6 +29,8 @@
 
 </center>
 
+## → All informations are also available on [www.blendercam.com ](https://www.blendercam.com ). 
+
 ## 👁️ About
 Blender CAM is an open source solution for artistic CAM - Computer aided machining - a g-code generation tool.
 
